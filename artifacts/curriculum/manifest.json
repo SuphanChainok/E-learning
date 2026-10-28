@@ -1,0 +1,213 @@
+{
+  "style": {
+    "name": "AAG editorial typography",
+    "font": "Tahoma",
+    "width": 1280,
+    "height": 720,
+    "fps": 15,
+    "seconds": 60,
+    "titleSize": 52,
+    "bodySize": 40,
+    "margin": 72,
+    "motion": "0.4 second ease-out reveal followed by stable reading holds",
+    "audio": "silent",
+    "exclusions": [
+      "no decorative charts",
+      "no tiny text",
+      "no stock claims about company policy"
+    ]
+  },
+  "timeline": [
+    {
+      "start": 0,
+      "settled": 0.4,
+      "cue": 0,
+      "hold_end": 6,
+      "end": 6
+    },
+    {
+      "start": 6,
+      "settled": 6.4,
+      "cue": 6,
+      "hold_end": 20,
+      "end": 20
+    },
+    {
+      "start": 20,
+      "settled": 20.4,
+      "cue": 20,
+      "hold_end": 34,
+      "end": 34
+    },
+    {
+      "start": 34,
+      "settled": 34.4,
+      "cue": 34,
+      "hold_end": 48,
+      "end": 48
+    },
+    {
+      "start": 48,
+      "settled": 48.4,
+      "cue": 48,
+      "hold_end": 60,
+      "end": 60
+    }
+  ],
+  "lessons": [
+    {
+      "courseId": "welcome-aag",
+      "category": "องค์กรและวัฒนธรรม",
+      "title": "ยินดีต้อนรับสู่ AAG+",
+      "id": "welcome",
+      "color": "mint",
+      "file": "curriculum-welcome-aag-welcome.mp4",
+      "points": [
+        "เริ่มจากเข้าใจเป้าหมายของทีม",
+        "ถามให้ชัด เมื่อมีสิ่งที่ยังไม่แน่ใจ",
+        "แบ่งปันสิ่งที่เรียนรู้ให้เพื่อนร่วมงาน"
+      ],
+      "activity": "ลองคิด: วันนี้คุณช่วยให้ทีมเข้าใจตรงกันได้อย่างไร?"
+    },
+    {
+      "courseId": "welcome-aag",
+      "category": "องค์กรและวัฒนธรรม",
+      "title": "วัฒนธรรมการทำงานร่วมกัน",
+      "id": "culture",
+      "color": "mint",
+      "file": "curriculum-welcome-aag-culture.mp4",
+      "points": [
+        "บอกเป้าหมายและข้อจำกัดให้ชัด",
+        "รับฟังมุมมองที่แตกต่าง",
+        "ให้ข้อเสนอแนะที่นำไปพัฒนาต่อได้"
+      ],
+      "activity": "เลือกหนึ่งพฤติกรรมที่จะเริ่มทำกับทีมในวันนี้"
+    },
+    {
+      "courseId": "welcome-aag",
+      "category": "องค์กรและวัฒนธรรม",
+      "title": "วางแผนการเรียนรู้ของคุณ",
+      "id": "journey",
+      "color": "mint",
+      "file": "curriculum-welcome-aag-journey.mp4",
+      "points": [
+        "เลือกทักษะที่ใช้ได้กับงานของคุณ",
+        "ตั้งเป้าหมายเล็ก ๆ ที่วัดผลได้",
+        "จัดเวลาเรียนและนัดทบทวนผล"
+      ],
+      "activity": "เขียนเป้าหมายหนึ่งข้อ พร้อมวันที่จะทบทวน"
+    },
+    {
+      "courseId": "digital-productivity",
+      "category": "ทักษะดิจิทัล",
+      "title": "จัดระเบียบงานให้เป็นระบบ",
+      "id": "organize",
+      "color": "peach",
+      "file": "curriculum-digital-productivity-organize.mp4",
+      "points": [
+        "รวบรวมรายการงานไว้ในที่เดียว",
+        "แยกงานเป็นขั้นตอนที่ลงมือทำได้",
+        "กำหนดเจ้าของงานและวันส่ง"
+      ],
+      "activity": "เลือกงานวันนี้ แล้วระบุขั้นตอนแรกที่จะทำ"
+    },
+    {
+      "courseId": "digital-productivity",
+      "category": "ทักษะดิจิทัล",
+      "title": "ทำงานร่วมกันบนคลาวด์",
+      "id": "collaborate",
+      "color": "peach",
+      "file": "curriculum-digital-productivity-collaborate.mp4",
+      "points": [
+        "ใช้เอกสารกลางเพื่อลดไฟล์ซ้ำ",
+        "ตั้งชื่อไฟล์ให้ทีมค้นหาได้ง่าย",
+        "ให้สิทธิ์เข้าถึงตามความจำเป็น"
+      ],
+      "activity": "ตรวจเอกสารหนึ่งไฟล์: ใครควรดูหรือแก้ไขได้?"
+    },
+    {
+      "courseId": "digital-productivity",
+      "category": "ทักษะดิจิทัล",
+      "title": "สร้างเวลาสำหรับงานสำคัญ",
+      "id": "focus",
+      "color": "peach",
+      "file": "curriculum-digital-productivity-focus.mp4",
+      "points": [
+        "เลือกงานสำคัญก่อนเริ่มวัน",
+        "กันช่วงเวลาและลดการแจ้งเตือน",
+        "รวมงานคล้ายกันไว้ทำในช่วงเดียว"
+      ],
+      "activity": "กำหนดช่วงเวลาโฟกัสสำหรับงานสำคัญหนึ่งงาน"
+    },
+    {
+      "courseId": "cyber-awareness",
+      "category": "ความปลอดภัย",
+      "title": "สังเกตสัญญาณอีเมลหลอกลวง",
+      "id": "phishing",
+      "color": "lavender",
+      "file": "curriculum-cyber-awareness-phishing.mp4",
+      "points": [
+        "ตรวจชื่อผู้ส่งและโดเมนให้ครบ",
+        "ระวังข้อความเร่งด่วนที่ขอข้อมูลลับ",
+        "ยืนยันกับทีม IT ผ่านช่องทางที่รู้จัก"
+      ],
+      "activity": "ก่อนคลิกลิงก์ครั้งต่อไป ให้หยุดตรวจผู้ส่งก่อน"
+    },
+    {
+      "courseId": "cyber-awareness",
+      "category": "ความปลอดภัย",
+      "title": "ดูแลบัญชีและรหัสผ่าน",
+      "id": "password",
+      "color": "lavender",
+      "file": "curriculum-cyber-awareness-password.mp4",
+      "points": [
+        "ใช้รหัสผ่านที่ไม่ซ้ำกับบัญชีอื่น",
+        "เปิดการยืนยันตัวตนหลายขั้นตอน",
+        "ไม่แบ่งปันรหัสผ่านหรือรหัส OTP"
+      ],
+      "activity": "ตรวจว่าบัญชีงานของคุณเปิดการยืนยันหลายขั้นตอนหรือยัง"
+    },
+    {
+      "courseId": "cyber-awareness",
+      "category": "ความปลอดภัย",
+      "title": "เมื่อพบเหตุการณ์ผิดปกติ",
+      "id": "report",
+      "color": "lavender",
+      "file": "curriculum-cyber-awareness-report.mp4",
+      "points": [
+        "หยุดสิ่งที่กำลังทำเมื่อพบความผิดปกติ",
+        "เก็บรายละเอียดเพื่ออธิบายเหตุการณ์",
+        "แจ้งทีม IT ผ่านช่องทางภายใน"
+      ],
+      "activity": "หาช่องทางแจ้งเหตุของบริษัทให้พร้อมก่อนเกิดเหตุ"
+    },
+    {
+      "courseId": "communication",
+      "category": "พัฒนาตนเอง",
+      "title": "การฟังอย่างตั้งใจ",
+      "id": "listen",
+      "color": "blue",
+      "file": "curriculum-communication-listen.mp4",
+      "points": [
+        "ให้คู่สนทนาพูดจนจบก่อนตอบ",
+        "ถามเพื่อเข้าใจ ไม่รีบสรุปเอง",
+        "ทวนสิ่งที่ได้ยินก่อนเสนอความเห็น"
+      ],
+      "activity": "ลองพูดว่า: ถ้าเข้าใจถูก คุณกำลังหมายถึง…"
+    },
+    {
+      "courseId": "communication",
+      "category": "พัฒนาตนเอง",
+      "title": "ให้ feedback อย่างสร้างสรรค์",
+      "id": "feedback",
+      "color": "blue",
+      "file": "curriculum-communication-feedback.mp4",
+      "points": [
+        "อธิบายพฤติกรรมที่สังเกตได้",
+        "บอกผลกระทบโดยไม่ตัดสินตัวบุคคล",
+        "ชวนกันหาแนวทางพัฒนา"
+      ],
+      "activity": "ฝึกใช้ลำดับ: สิ่งที่เห็น → ผลกระทบ → ทางเลือก"
+    }
+  ]
+}
