@@ -9,6 +9,7 @@ import type {
   DemoStore,
   Attempt,
   VideoProgress,
+  Role,
 } from "./types";
 import { MongoClient, type UpdateFilter } from "mongodb";
 import { courses } from "./data.ts";
@@ -147,6 +148,43 @@ export async function addUser(user: User) {
       .collection<User>("users")
       .createIndex({ email: 1 }, { unique: true });
     await db.collection<User>("users").insertOne(user);
+  }
+}
+export async function updateUserRole(userId: string, role: Role) {
+  if (demo) {
+    const u = memory().users.find((x) => x.id === userId);
+    if (u) u.role = role;
+  } else {
+    try {
+      const db = await database();
+      await db
+        .collection<User>("users")
+        .updateOne({ id: userId }, { $set: { role } });
+    } catch (error) {
+      if (!activateDemoFallback(error)) throw error;
+      const u = memory().users.find((x) => x.id === userId);
+      if (u) u.role = role;
+    }
+  }
+}
+export async function updateUserCourses(
+  userId: string,
+  assignedCourses: string[],
+) {
+  if (demo) {
+    const u = memory().users.find((x) => x.id === userId);
+    if (u) u.assignedCourses = assignedCourses;
+  } else {
+    try {
+      const db = await database();
+      await db
+        .collection<User>("users")
+        .updateOne({ id: userId }, { $set: { assignedCourses } });
+    } catch (error) {
+      if (!activateDemoFallback(error)) throw error;
+      const u = memory().users.find((x) => x.id === userId);
+      if (u) u.assignedCourses = assignedCourses;
+    }
   }
 }
 export async function getProgress(userId: string): Promise<Progress[]> {

@@ -5,6 +5,7 @@ export interface User {
   email: string;
   password: string;
   role: Role;
+  assignedCourses?: string[];
 }
 export type PublicUser = Omit<User, "password">;
 export interface Lesson {
@@ -22,6 +23,7 @@ export interface Quiz {
 }
 export type CourseColor = "mint" | "peach" | "lavender" | "blue";
 export type CourseIcon = "spark" | "digital" | "shield" | "people";
+export type CourseTargetRole = "all" | "learner" | "admin";
 export interface Course {
   id: string;
   title: string;
@@ -33,6 +35,7 @@ export interface Course {
   color: CourseColor;
   icon: CourseIcon;
   level: string;
+  targetRole?: CourseTargetRole;
   lessons: Lesson[];
   quiz: Quiz;
 }
@@ -43,7 +46,7 @@ export type CourseData = Omit<Course, "id">;
 export type CourseDraft = Pick<
   Course,
   "title" | "description" | "category" | "instructor" | "color" | "quiz"
-> & { id?: string; lessons: (Omit<Lesson, "id"> & { id?: string })[] };
+> & { id?: string; targetRole?: CourseTargetRole; lessons: (Omit<Lesson, "id"> & { id?: string })[] };
 export interface Progress {
   userId: string;
   courseId: string;
@@ -92,4 +95,5 @@ export interface ApiResponses {
   quiz: { passed: boolean };
   "admin/courses": { courses: Course[] };
   "admin/report": { users: UserReport[] };
+  "admin/upload": { ok: boolean; url: string; filename: string };
 }

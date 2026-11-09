@@ -10,6 +10,8 @@ import type {
   UserReport,
   ApiResponses,
   VideoProgress,
+  Role,
+  CourseTargetRole,
 } from "../lib/types";
 import VideoPlayer from "./video-player";
 import { courseProgress } from "../lib/course-progress";
@@ -37,6 +39,13 @@ import {
   X,
   Award,
   Leaf,
+  Upload,
+  Video,
+  FileVideo,
+  Wand2,
+  Copy,
+  UserPlus,
+  SlidersHorizontal,
 } from "lucide-react";
 const icons = {
   spark: Sparkles,
@@ -70,12 +79,52 @@ async function api(path: string, method = "GET", body?: unknown) {
   if (!r.ok) throw Error(data.error || "เกิดข้อผิดพลาด");
   return data;
 }
+async function uploadVideoFile(file: File): Promise<{ ok: boolean; url: string; filename: string }> {
+  const formData = new FormData();
+  formData.append("video", file);
+  const r = await fetch("/api/admin/upload", {
+    method: "POST",
+    body: formData,
+  });
+  const data = await r.json();
+  if (!r.ok) throw Error(data.error || "อัปโหลดวิดีโอไม่สำเร็จ");
+  return data;
+}
+function detectVideoDuration(fileOrUrl: File | string): Promise<number> {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    const url = typeof fileOrUrl === "string" ? fileOrUrl : URL.createObjectURL(fileOrUrl);
+    const cleanUp = () => {
+      if (typeof fileOrUrl !== "string") {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      }
+    };
+    video.onloadedmetadata = () => {
+      const dur = Math.round(video.duration);
+      cleanUp();
+      resolve(Number.isFinite(dur) && dur > 0 ? dur : 0);
+    };
+    video.onerror = () => {
+      cleanUp();
+      resolve(0);
+    };
+    setTimeout(() => {
+      cleanUp();
+      resolve(0);
+    }, 6000);
+    video.src = url;
+  });
+}
 const emptyCourse = (): CourseDraft => ({
   title: "",
   description: "",
   category: "พัฒนาตนเอง",
   instructor: "AAG+ Academy",
   color: "mint",
+  targetRole: "all",
   lessons: [
     {
       title: "",
@@ -106,8 +155,17 @@ export default function Academy() {
     [register, setRegister] = useState(false),
     [mobile, setMobile] = useState(false),
     [editor, setEditor] = useState<CourseDraft | null>(null),
+    [uploadingIndex, setUploadingIndex] = useState<number | null>(null),
+    [uploadStatus, setUploadStatus] = useState<string>(""),
     [adminCourses, setAdminCourses] = useState<Course[]>([]),
     [users, setUsers] = useState<UserReport[]>([]),
+    [showAddUser, setShowAddUser] = useState(false),
+    [newUserName, setNewUserName] = useState(""),
+    [newUserEmail, setNewUserEmail] = useState(""),
+    [newUserPassword, setNewUserPassword] = useState(""),
+    [newUserRole, setNewUserRole] = useState<Role>("learner"),
+    [managingUserCourses, setManagingUserCourses] = useState<UserReport | null>(null),
+    [selectedCourseIds, setSelectedCourseIds] = useState<string[]>([]),
     [certificate, setCertificate] = useState<PublicCourse | null>(null);
   const notify = useCallback(
     (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
@@ -212,6 +270,42 @@ export default function Academy() {
       setBusy(false);
     }
   }
+  function openCoursePermModal(u: UserReport) {
+    setManagingUserCourses(u);
+    if (!u.assignedCourses || u.assignedCourses.includes("all")) {
+      setSelectedCourseIds(adminCourses.map((c) => c.id));
+    } else {
+      setSelectedCourseIds(u.assignedCourses);
+    }
+  }
+  async function saveUserCoursePermissions() {
+    if (!managingUserCourses) return;
+    setBusy(true);
+    try {
+      const isAll = selectedCourseIds.length === adminCourses.length;
+      const toSave = isAll ? ["all"] : selectedCourseIds;
+      await api("admin/users", "PUT", {
+        userId: managingUserCourses.id,
+        assignedCourses: toSave,
+      });
+      setUsers((prev) =>
+        prev.map((item) =>
+          item.id === managingUserCourses.id
+            ? { ...item, assignedCourses: toSave }
+            : item,
+        ),
+      );
+      if (user && user.id === managingUserCourses.id) {
+        setUser({ ...user, assignedCourses: toSave });
+        await refresh();
+      }
+      setManagingUserCourses(null);
+    } catch (err) {
+      notify(err);
+    } finally {
+      setBusy(false);
+    }
+  }
   function navigate(v: View) {
     window.scrollTo({ top: 0 });
     setView(v);
@@ -266,6 +360,151 @@ export default function Academy() {
     } finally {
       setBusy(false);
     }
+  }
+  async function handleSingleVideoUpload(index: number, file: File) {
+    if (!editor) return;
+    setUploadingIndex(index);
+    setUploadStatus("กำลังประมวลผลและอัปโหลดวิดีโอ…");
+    try {
+      const [duration, uploadRes] = await Promise.all([
+        detectVideoDuration(file),
+        uploadVideoFile(file),
+      ]);
+      const baseName = file.name.replace(/\.[^/.]+$/, "");
+      const durSeconds = duration > 0 ? duration : 60;
+      const durMinutes = Math.max(1, Math.ceil(durSeconds / 60));
+      setEditor((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          lessons: prev.lessons.map((l, j) => {
+            if (j !== index) return l;
+            return {
+              ...l,
+              title: l.title.trim() ? l.title : baseName,
+              content: l.content.trim()
+                ? l.content
+                : `บทเรียนวิดีโอ: ${baseName}\nกรุณารับชมวิดีโอให้จบเพื่อบันทึกความคืบหน้าการเรียนรู้`,
+              videoUrl: uploadRes.url,
+              videoDurationSeconds: durSeconds,
+              minutes: durMinutes,
+            };
+          }),
+        };
+      });
+    } catch (e) {
+      notify(e);
+    } finally {
+      setUploadingIndex(null);
+      setUploadStatus("");
+    }
+  }
+  async function handleBatchVideoUpload(files: FileList | File[]) {
+    if (!editor || !files.length) return;
+    setUploadingIndex(-1);
+    try {
+      const newLessons: CourseDraft["lessons"] = [];
+      const fileList = Array.from(files);
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        setUploadStatus(
+          `กำลังนำเข้า (${i + 1}/${fileList.length}): ${file.name}…`,
+        );
+        const [duration, uploadRes] = await Promise.all([
+          detectVideoDuration(file),
+          uploadVideoFile(file),
+        ]);
+        const baseName = file.name.replace(/\.[^/.]+$/, "");
+        const durSeconds = duration > 0 ? duration : 60;
+        newLessons.push({
+          title: baseName,
+          content: `บทเรียนวิดีโอ: ${baseName}\nกรุณารับชมวิดีโอให้จบเพื่อบันทึกความคืบหน้าการเรียนรู้`,
+          minutes: Math.max(1, Math.ceil(durSeconds / 60)),
+          videoUrl: uploadRes.url,
+          videoDurationSeconds: durSeconds,
+        });
+      }
+      setEditor((prev) => {
+        if (!prev) return null;
+        const isDefaultSingle =
+          prev.lessons.length === 1 &&
+          !prev.lessons[0].title.trim() &&
+          !prev.lessons[0].content.trim() &&
+          !prev.lessons[0].videoUrl;
+        return {
+          ...prev,
+          lessons: isDefaultSingle
+            ? newLessons
+            : [...prev.lessons, ...newLessons],
+        };
+      });
+    } catch (e) {
+      notify(e);
+    } finally {
+      setUploadingIndex(null);
+      setUploadStatus("");
+    }
+  }
+  function autoFillQuiz() {
+    if (!editor) return;
+    const courseTitle = editor.title.trim() || "หลักสูตรนี้";
+    setEditor({
+      ...editor,
+      quiz: {
+        question: `ข้อใดคือเป้าหมายสำคัญของการเรียนรู้ในหลักสูตร "${courseTitle}"?`,
+        options: [
+          "การทำความเข้าใจและนำทักษะไปประยุกต์ใช้จริงในการทำงาน",
+          "การท่องจำเนื้อหาเพียงเพื่อผ่านแบบทดสอบเท่านั้น",
+          "การทำงานตามความเคยชินเดิมโดยไม่ปรับใช้สิ่งที่เรียนรู้",
+        ],
+        answer: 0,
+      },
+    });
+  }
+  function autoFillCourseTemplate() {
+    if (!editor) return;
+    setEditor({
+      ...editor,
+      title:
+        editor.title.trim() ||
+        "การทำงานร่วมกันและการสื่อสารอย่างมีประสิทธิภาพ",
+      description:
+        editor.description.trim() ||
+        "เรียนรู้แนวทางการสื่อสาร การให้ feedback ที่สร้างสรรค์ และการบริหารเวลาเพื่อเพิ่มประสิทธิผลของทีม",
+      category: editor.category || "พัฒนาตนเอง",
+      instructor: editor.instructor.trim() || "ทีม People & Culture",
+      color: editor.color || "mint",
+      targetRole: editor.targetRole || "all",
+      lessons: editor.lessons.map((l, i) => ({
+        ...l,
+        title: l.title.trim() || `บทที่ ${i + 1}: พื้นฐานการทำงานเป็นทีม`,
+        content:
+          l.content.trim() ||
+          "ทำความเข้าใจบทบาทของตนเองในทีม สื่อสารอย่างตรงไปตรงมา และรับฟังความคิดเห็นเพื่อเป้าหมายร่วมกัน",
+      })),
+      quiz: editor.quiz.question.trim()
+        ? editor.quiz
+        : {
+            question: "การสื่อสารที่มีประสิทธิภาพในทีมควรเริ่มต้นจากสิ่งใด?",
+            options: [
+              "การรับฟังอย่างตั้งใจและเข้าใจเป้าหมายร่วมกัน",
+              "การสั่งการโดยไม่ต้องรอฟังข้อเสนอแนะ",
+              "การหลีกเลี่ยงการพูดคุยเมื่อเกิดปัญหา",
+            ],
+            answer: 0,
+          },
+    });
+  }
+  function duplicateLesson(index: number) {
+    if (!editor) return;
+    const target = editor.lessons[index];
+    const clone = {
+      ...target,
+      title: target.title ? `${target.title} (สำเนา)` : "บทเรียนใหม่",
+    };
+    const nextLessons = [...editor.lessons];
+    nextLessons.splice(index + 1, 0, clone);
+    setEditor({ ...editor, lessons: nextLessons });
   }
   async function saveCourse(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -331,6 +570,29 @@ export default function Academy() {
     a.download = "aag-learning-report.csv";
     a.click();
     URL.revokeObjectURL(url);
+  }
+  async function handleAddUser(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api("admin/users", "POST", {
+        name: newUserName,
+        email: newUserEmail,
+        password: newUserPassword,
+        role: newUserRole,
+      });
+      const r = await api("admin/report");
+      setUsers(r.users);
+      setShowAddUser(false);
+      setNewUserName("");
+      setNewUserEmail("");
+      setNewUserPassword("");
+      setNewUserRole("learner");
+    } catch (err) {
+      notify(err);
+    } finally {
+      setBusy(false);
+    }
   }
   function Card({ course: c }: { course: PublicCourse }) {
     const Icon = icons[c.icon] || BookOpen;
@@ -797,13 +1059,32 @@ export default function Academy() {
               {editor ? (
                 <section className="admin-panel">
                   <div className="section-heading">
-                    <h2>{editor.id ? "แก้ไขคอร์ส" : "สร้างคอร์สใหม่"}</h2>
-                    <button
-                      className="text-button"
-                      onClick={() => setEditor(null)}
-                    >
-                      ยกเลิก
-                    </button>
+                    <div>
+                      <h2>{editor.id ? "แก้ไขคอร์ส" : "สร้างคอร์สใหม่"}</h2>
+                      <p className="muted" style={{ margin: "4px 0 0" }}>
+                        กรอกข้อมูลคอร์ส หรือนำเข้าวิดีโอเพื่อสร้างบทเรียนและคำนวณเวลาอัตโนมัติ
+                      </p>
+                    </div>
+                    <div className="editor-top-actions">
+                      {!editor.id && (
+                        <button
+                          type="button"
+                          className="secondary small-btn"
+                          onClick={autoFillCourseTemplate}
+                          title="เติมข้อมูลตัวอย่างเพื่อลดขั้นตอนการพิมพ์"
+                        >
+                          <Wand2 size={14} />
+                          เติมข้อมูลตัวอย่าง
+                        </button>
+                      )}
+                      <button
+                        className="text-button"
+                        onClick={() => setEditor(null)}
+                        type="button"
+                      >
+                        ยกเลิก
+                      </button>
+                    </div>
                   </div>
                   <form onSubmit={saveCourse} className="editor">
                     <label>
@@ -869,15 +1150,113 @@ export default function Academy() {
                           <option value="blue">ฟ้า</option>
                         </select>
                       </label>
+                      <label>
+                        สิทธิ์ผู้เรียน (Role)
+                        <select
+                          value={editor.targetRole || "all"}
+                          onChange={(e) =>
+                            setEditor({
+                              ...editor,
+                              targetRole: e.target.value as CourseTargetRole,
+                            })
+                          }
+                        >
+                          <option value="all">ทุกคน (ทุกบทบาท)</option>
+                          <option value="learner">เฉพาะผู้เรียน (Learner)</option>
+                          <option value="admin">เฉพาะผู้ดูแลระบบ (Admin)</option>
+                        </select>
+                      </label>
                     </div>
+
+                    <div className="import-toolbar">
+                      <div className="import-info">
+                        <FileVideo size={24} />
+                        <div>
+                          <strong>นำเข้าวิดีโอหลายไฟล์พร้อมกัน</strong>
+                          <small>
+                            เลือกไฟล์ MP4/WebM เพื่อสร้างบทเรียน ดึงชื่อ และคำนวณเวลาให้อัตโนมัติในคลิกเดียว
+                          </small>
+                        </div>
+                      </div>
+                      <label
+                        className={`upload-btn ${
+                          uploadingIndex !== null ? "disabled" : ""
+                        }`}
+                      >
+                        <Upload size={16} />
+                        {uploadingIndex === -1
+                          ? uploadStatus || "กำลังนำเข้า…"
+                          : "เลือกหลายไฟล์วิดีโอ"}
+                        <input
+                          type="file"
+                          accept="video/mp4,video/webm"
+                          multiple
+                          disabled={busy || uploadingIndex !== null}
+                          style={{ display: "none" }}
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files.length > 0) {
+                              handleBatchVideoUpload(e.target.files);
+                              e.target.value = "";
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+
                     {editor.lessons.map((l, i) => (
-                      <fieldset key={i}>
-                        <legend>บทเรียนที่ {i + 1}</legend>
+                      <fieldset key={i} className="lesson-fieldset">
+                        <div className="lesson-fieldset-header">
+                          <legend>
+                            บทเรียนที่ {i + 1}
+                            {l.videoUrl && (
+                              <span className="lesson-badge">
+                                <Video size={12} />
+                                {l.videoDurationSeconds
+                                  ? `${Math.floor(
+                                      l.videoDurationSeconds / 60,
+                                    )}:${String(
+                                      l.videoDurationSeconds % 60,
+                                    ).padStart(2, "0")} นาที`
+                                  : `${l.minutes} นาที`}
+                              </span>
+                            )}
+                          </legend>
+                          <div className="lesson-fieldset-actions">
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() => duplicateLesson(i)}
+                              title="ทำซ้ำบทเรียนนี้เพื่อลดการกรอกใหม่"
+                            >
+                              <Copy size={13} />
+                              ทำซ้ำ
+                            </button>
+                            {editor.lessons.length > 1 && (
+                              <button
+                                type="button"
+                                className="text-button danger"
+                                onClick={() =>
+                                  setEditor({
+                                    ...editor,
+                                    lessons: editor.lessons.filter(
+                                      (_, j) => j !== i,
+                                    ),
+                                  })
+                                }
+                              >
+                                <Trash2 size={13} />
+                                ลบบทเรียน
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
                         <label>
                           ชื่อบทเรียน
                           <input
                             required
                             value={l.title}
+                            placeholder="ระบุชื่อบทเรียน..."
                             onChange={(e) =>
                               setEditor({
                                 ...editor,
@@ -892,8 +1271,9 @@ export default function Academy() {
                           เนื้อหา
                           <textarea
                             required
-                            rows={5}
+                            rows={4}
                             value={l.content}
+                            placeholder="เนื้อหาประกอบบทเรียน..."
                             onChange={(e) =>
                               setEditor({
                                 ...editor,
@@ -906,9 +1286,130 @@ export default function Academy() {
                             }
                           />
                         </label>
+
+                        <div className="video-upload-box">
+                          <div className="video-upload-header">
+                            <span>
+                              <Video
+                                size={14}
+                                style={{
+                                  verticalAlign: "middle",
+                                  marginRight: "4px",
+                                }}
+                              />
+                              วิดีโอประจำบทเรียน (MP4 / WebM)
+                            </span>
+                            {l.videoUrl && (
+                              <button
+                                type="button"
+                                className="text-button danger"
+                                onClick={() =>
+                                  setEditor({
+                                    ...editor,
+                                    lessons: editor.lessons.map((x, j) =>
+                                      i === j
+                                        ? {
+                                            ...x,
+                                            videoUrl: "",
+                                            videoDurationSeconds: undefined,
+                                          }
+                                        : x,
+                                    ),
+                                  })
+                                }
+                              >
+                                <X size={13} />
+                                ลบวิดีโอ
+                              </button>
+                            )}
+                          </div>
+                          <div className="video-upload-actions">
+                            <label
+                              className={`upload-btn ${
+                                uploadingIndex !== null ? "disabled" : ""
+                              }`}
+                            >
+                              <Upload size={14} />
+                              {uploadingIndex === i
+                                ? uploadStatus || "กำลังอัปโหลด…"
+                                : "อัปโหลดไฟล์วิดีโอ"}
+                              <input
+                                type="file"
+                                accept="video/mp4,video/webm"
+                                disabled={busy || uploadingIndex !== null}
+                                style={{ display: "none" }}
+                                onChange={(e) => {
+                                  if (e.target.files && e.target.files[0]) {
+                                    handleSingleVideoUpload(
+                                      i,
+                                      e.target.files[0],
+                                    );
+                                    e.target.value = "";
+                                  }
+                                }}
+                              />
+                            </label>
+                            <span className="or-text">หรือใส่ลิงก์</span>
+                            <input
+                              type="text"
+                              placeholder="https://... หรือ /videos/..."
+                              value={l.videoUrl || ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setEditor({
+                                  ...editor,
+                                  lessons: editor.lessons.map((x, j) =>
+                                    i === j ? { ...x, videoUrl: val } : x,
+                                  ),
+                                });
+                              }}
+                              onBlur={async (e) => {
+                                const val = e.target.value.trim();
+                                if (val && !l.videoDurationSeconds) {
+                                  const dur = await detectVideoDuration(val);
+                                  if (dur > 0) {
+                                    setEditor((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            lessons: prev.lessons.map((x, j) =>
+                                              i === j
+                                                ? {
+                                                    ...x,
+                                                    videoDurationSeconds: dur,
+                                                    minutes: Math.max(
+                                                      1,
+                                                      Math.ceil(dur / 60),
+                                                    ),
+                                                  }
+                                                : x,
+                                            ),
+                                          }
+                                        : prev,
+                                    );
+                                  }
+                                }
+                              }}
+                            />
+                          </div>
+                          {l.videoUrl && (
+                            <div className="video-detected-info">
+                              <span>
+                                บันทึกวิดีโอแล้ว: <code>{l.videoUrl}</code>
+                              </span>
+                              {l.videoDurationSeconds ? (
+                                <small>
+                                  ความยาว: {l.videoDurationSeconds} วินาที
+                                  (คำนวณเป็น {l.minutes} นาทีให้อัตโนมัติ)
+                                </small>
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
+
                         <div className="form-row">
                           <label>
-                            เวลา (นาที)
+                            เวลาเรียน (นาที)
                             <input
                               required
                               type="number"
@@ -930,69 +1431,41 @@ export default function Academy() {
                               }
                             />
                           </label>
-                          <label>
-                            วิดีโอ MP4/WebM (ลิงก์ HTTPS หรือ /videos/)
-                            <input
-                              type="text"
-                              placeholder="https://example.com/lesson.mp4"
-                              value={l.videoUrl || ""}
-                              onChange={(e) =>
-                                setEditor({
-                                  ...editor,
-                                  lessons: editor.lessons.map((x, j) =>
-                                    i === j
-                                      ? { ...x, videoUrl: e.target.value }
-                                      : x,
-                                  ),
-                                })
-                              }
-                            />
-                          </label>
+                          {l.videoUrl && (
+                            <label>
+                              ความยาววิดีโอ (วินาที)
+                              <input
+                                required
+                                type="number"
+                                min={1}
+                                max={86400}
+                                step={1}
+                                value={l.videoDurationSeconds ?? ""}
+                                onChange={(e) => {
+                                  const sec = Number(e.target.value);
+                                  setEditor({
+                                    ...editor,
+                                    lessons: editor.lessons.map((x, j) =>
+                                      i === j
+                                        ? {
+                                            ...x,
+                                            videoDurationSeconds: sec,
+                                            minutes:
+                                              sec > 0
+                                                ? Math.max(
+                                                    1,
+                                                    Math.ceil(sec / 60),
+                                                  )
+                                                : x.minutes,
+                                          }
+                                        : x,
+                                    ),
+                                  });
+                                }}
+                              />
+                            </label>
+                          )}
                         </div>
-                        {l.videoUrl && (
-                          <label>
-                            ความยาววิดีโอ (วินาที)
-                            <input
-                              required
-                              type="number"
-                              min={1}
-                              max={86400}
-                              step={1}
-                              value={l.videoDurationSeconds ?? ""}
-                              onChange={(e) =>
-                                setEditor({
-                                  ...editor,
-                                  lessons: editor.lessons.map((x, j) =>
-                                    i === j
-                                      ? {
-                                          ...x,
-                                          videoDurationSeconds: Number(
-                                            e.target.value,
-                                          ),
-                                        }
-                                      : x,
-                                  ),
-                                })
-                              }
-                            />
-                          </label>
-                        )}
-                        {editor.lessons.length > 1 && (
-                          <button
-                            type="button"
-                            className="text-button danger"
-                            onClick={() =>
-                              setEditor({
-                                ...editor,
-                                lessons: editor.lessons.filter(
-                                  (_, j) => j !== i,
-                                ),
-                              })
-                            }
-                          >
-                            ลบบทเรียน
-                          </button>
-                        )}
                       </fieldset>
                     ))}
                     <button
@@ -1017,12 +1490,24 @@ export default function Academy() {
                       เพิ่มบทเรียน
                     </button>
                     <fieldset>
-                      <legend>แบบทดสอบท้ายคอร์ส</legend>
+                      <div className="lesson-fieldset-header">
+                        <legend>แบบทดสอบท้ายคอร์ส</legend>
+                        <button
+                          type="button"
+                          className="secondary small-btn"
+                          onClick={autoFillQuiz}
+                          title="กรอกคำถามและตัวเลือกมาตรฐานให้อัตโนมัติ"
+                        >
+                          <Wand2 size={13} />
+                          ใส่แบบทดสอบอัตโนมัติ
+                        </button>
+                      </div>
                       <label>
                         คำถาม
                         <input
                           required
                           value={editor.quiz.question}
+                          placeholder="คำถามสำหรับประเมินผลการเรียนรู้..."
                           onChange={(e) =>
                             setEditor({
                               ...editor,
@@ -1040,6 +1525,7 @@ export default function Academy() {
                           <input
                             required
                             value={o}
+                            placeholder={`ตัวเลือกข้อที่ ${i + 1}...`}
                             onChange={(e) =>
                               setEditor({
                                 ...editor,
@@ -1080,8 +1566,15 @@ export default function Academy() {
                       เมื่อเปลี่ยนเนื้อหาเดิม
                       ควรสร้างคอร์สใหม่หากต้องการให้ผู้เรียนเริ่มเก็บผลใหม่
                     </p>
-                    <button className="primary" disabled={busy}>
-                      {busy ? "กำลังบันทึก…" : "บันทึกคอร์ส"}
+                    <button
+                      className="primary"
+                      disabled={busy || uploadingIndex !== null}
+                    >
+                      {busy
+                        ? "กำลังบันทึก…"
+                        : uploadingIndex !== null
+                          ? uploadStatus || "กำลังประมวลผลวิดีโอ…"
+                          : "บันทึกคอร์ส"}
                     </button>
                   </form>
                 </section>
@@ -1094,6 +1587,21 @@ export default function Academy() {
                         <b>{c.title}</b>
                         <small>
                           {c.lessons.length} บทเรียน · {c.category}
+                          {c.targetRole && c.targetRole !== "all" && (
+                            <span
+                              style={{
+                                marginLeft: "8px",
+                                color: "#27561f",
+                                background: "#eef6e9",
+                                padding: "1px 6px",
+                                borderRadius: "4px",
+                              }}
+                            >
+                              {c.targetRole === "admin"
+                                ? "เฉพาะผู้ดูแล"
+                                : "เฉพาะผู้เรียน"}
+                            </span>
+                          )}
                         </small>
                       </div>
                       <button
@@ -1116,17 +1624,132 @@ export default function Academy() {
               )}
               <section className="admin-panel">
                 <div className="section-heading">
-                  <h2>รายงานผู้เรียน</h2>
-                  <button className="secondary" onClick={exportReport}>
-                    ส่งออก CSV
-                  </button>
+                  <div>
+                    <h2>จัดการผู้ใช้งานและรายงาน ({users.length})</h2>
+                    <p className="muted" style={{ margin: "4px 0 0" }}>
+                      กำหนดสิทธิ์ (Role) สร้างบัญชีผู้ใช้ใหม่
+                      และติดตามผลการเรียนรู้
+                    </p>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                    }}
+                  >
+                    <button
+                      className="primary small-btn"
+                      onClick={() => setShowAddUser(!showAddUser)}
+                      type="button"
+                    >
+                      <UserPlus size={14} />
+                      {showAddUser ? "ปิดฟอร์ม" : "เพิ่มผู้ใช้งาน"}
+                    </button>
+                    <button
+                      className="secondary small-btn"
+                      onClick={exportReport}
+                    >
+                      ส่งออก CSV
+                    </button>
+                  </div>
                 </div>
+
+                {showAddUser && (
+                  <form
+                    onSubmit={handleAddUser}
+                    style={{
+                      background: "#f7faf5",
+                      border: "1px solid #dbe6d5",
+                      borderRadius: "10px",
+                      padding: "20px",
+                      marginBottom: "24px",
+                    }}
+                  >
+                    <h3
+                      style={{
+                        margin: "0 0 14px",
+                        fontSize: "14px",
+                        color: "#2d4e24",
+                      }}
+                    >
+                      สร้างผู้ใช้งานใหม่และกำหนดสิทธิ์
+                    </h3>
+                    <div className="form-row">
+                      <label>
+                        ชื่อ-นามสกุล
+                        <input
+                          required
+                          value={newUserName}
+                          placeholder="เช่น สมชาย ใจดี"
+                          onChange={(e) => setNewUserName(e.target.value)}
+                        />
+                      </label>
+                      <label>
+                        อีเมล
+                        <input
+                          required
+                          type="email"
+                          value={newUserEmail}
+                          placeholder="user@example.com"
+                          onChange={(e) => setNewUserEmail(e.target.value)}
+                        />
+                      </label>
+                    </div>
+                    <div className="form-row">
+                      <label>
+                        รหัสผ่านเริ่มต้น (อย่างน้อย 10 ตัวอักษร)
+                        <input
+                          required
+                          type="password"
+                          minLength={10}
+                          value={newUserPassword}
+                          placeholder="อย่างน้อย 10 ตัวอักษร"
+                          onChange={(e) => setNewUserPassword(e.target.value)}
+                        />
+                      </label>
+                      <label>
+                        สิทธิ์การใช้งาน (Role)
+                        <select
+                          value={newUserRole}
+                          onChange={(e) =>
+                            setNewUserRole(e.target.value as Role)
+                          }
+                        >
+                          <option value="learner">ผู้เรียน (Learner)</option>
+                          <option value="admin">ผู้ดูแลระบบ (Admin)</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "10px",
+                        marginTop: "8px",
+                      }}
+                    >
+                      <button className="primary small-btn" disabled={busy}>
+                        {busy ? "กำลังสร้าง…" : "บันทึกผู้ใช้งาน"}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => setShowAddUser(false)}
+                      >
+                        ยกเลิก
+                      </button>
+                    </div>
+                  </form>
+                )}
+
                 <div className="table-wrap">
                   <table>
                     <thead>
                       <tr>
                         <th>ชื่อ / อีเมล</th>
-                        <th>สิทธิ์</th>
+                        <th>สิทธิ์ (Role)</th>
+                        <th>คอร์สที่เข้าถึง</th>
                         <th>คอร์สที่ผ่าน</th>
                       </tr>
                     </thead>
@@ -1137,7 +1760,74 @@ export default function Academy() {
                             {u.name}
                             <small>{u.email}</small>
                           </td>
-                          <td>{u.role === "admin" ? "ผู้ดูแล" : "ผู้เรียน"}</td>
+                          <td>
+                            <select
+                              value={u.role}
+                              disabled={
+                                busy || (user ? u.id === user.id : false)
+                              }
+                              title={
+                                user && u.id === user.id
+                                  ? "ไม่สามารถเปลี่ยนสิทธิ์ของตนเองได้"
+                                  : "เลือกสิทธิ์ผู้ใช้งาน"
+                              }
+                              style={{
+                                margin: 0,
+                                padding: "4px 8px",
+                                fontSize: "11px",
+                                width: "auto",
+                                minWidth: "90px",
+                                borderRadius: "5px",
+                                border: "1px solid #d1ded0",
+                                background:
+                                  u.role === "admin" ? "#eef6ea" : "#fff",
+                                fontWeight: u.role === "admin" ? 600 : 400,
+                                color:
+                                  u.role === "admin" ? "#1e4c19" : "#44593e",
+                              }}
+                              onChange={async (e) => {
+                                const newRole = e.target.value as Role;
+                                try {
+                                  setBusy(true);
+                                  await api("admin/users", "PUT", {
+                                    userId: u.id,
+                                    role: newRole,
+                                  });
+                                  setUsers((prev) =>
+                                    prev.map((item) =>
+                                      item.id === u.id
+                                        ? { ...item, role: newRole }
+                                        : item,
+                                    ),
+                                  );
+                                } catch (err) {
+                                  notify(err);
+                                } finally {
+                                  setBusy(false);
+                                }
+                              }}
+                            >
+                              <option value="learner">ผู้เรียน</option>
+                              <option value="admin">ผู้ดูแล</option>
+                            </select>
+                          </td>
+                          <td>
+                            {u.role === "admin" ? (
+                              <span className="muted">ทุกคอร์ส</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="secondary small-btn"
+                                onClick={() => openCoursePermModal(u)}
+                                title="กำหนดว่าผู้ใช้นี้เข้าเรียนคอร์สใดได้บ้าง"
+                              >
+                                <SlidersHorizontal size={13} />
+                                {!u.assignedCourses || u.assignedCourses.includes("all")
+                                  ? "ทุกคอร์ส"
+                                  : `${u.assignedCourses.length} คอร์ส`}
+                              </button>
+                            )}
+                          </td>
                           <td>
                             {
                               u.progress.filter(
@@ -1431,6 +2121,52 @@ export default function Academy() {
           </footer>
         </main>
       </div>
+      {managingUserCourses && (
+        <div className="modal-backdrop">
+          <div className="certificate-modal" style={{ maxWidth: 640, width: "min(640px, 100%)" }}>
+            <div className="modal-actions">
+              <button className="icon-button" aria-label="ปิด" onClick={() => setManagingUserCourses(null)}>
+                <X />
+              </button>
+            </div>
+            <div style={{ padding: "4px 8px 8px" }}>
+              <span className="eyebrow">COURSE ACCESS</span>
+              <h2 style={{ margin: "6px 0 4px" }}>กำหนดสิทธิ์เข้าเรียน</h2>
+              <p className="muted" style={{ margin: "0 0 14px" }}>
+                เลือกคอร์สที่ <b>{managingUserCourses.name}</b> สามารถเข้าเรียนและมองเห็นได้
+                ผู้ใช้นี้จะเห็นเฉพาะคอร์สที่เลือก (ตาม Role ของคอร์สด้วย)
+              </p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                <button type="button" className="secondary small-btn" onClick={() => setSelectedCourseIds(adminCourses.map((c) => c.id))}>เลือกทั้งหมด</button>
+                <button type="button" className="secondary small-btn" onClick={() => setSelectedCourseIds([])}>ไม่เลือกเลย</button>
+                <span className="muted" style={{ alignSelf: "center" }}>เลือก {selectedCourseIds.length}/{adminCourses.length} คอร์ส</span>
+              </div>
+              <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #dbe6d5", borderRadius: 10, padding: "8px 10px", marginBottom: 16, background: "#fbfdf9" }}>
+                {adminCourses.length ? (
+                  adminCourses.map((c) => {
+                    const checked = selectedCourseIds.includes(c.id);
+                    return (
+                      <label key={c.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 4px", borderBottom: "1px solid #eef3eb", cursor: "pointer" }}>
+                        <input type="checkbox" checked={checked} onChange={() => setSelectedCourseIds((prev) => checked ? prev.filter((id) => id !== c.id) : [...prev, c.id])} style={{ marginTop: 3 }} />
+                        <span>
+                          <b style={{ display: "block" }}>{c.title}</b>
+                          <small className="muted">{c.category}{c.targetRole && c.targetRole !== "all" ? ` · เฉพาะ ${c.targetRole === "admin" ? "ผู้ดูแล" : "ผู้เรียน"}` : ""}</small>
+                        </span>
+                      </label>
+                    );
+                  })
+                ) : (
+                  <p className="muted">ยังไม่มีคอร์สในระบบ</p>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button type="button" className="text-button" onClick={() => setManagingUserCourses(null)}>ยกเลิก</button>
+                <button type="button" className="primary" disabled={busy} onClick={saveUserCoursePermissions}>{busy ? "กำลังบันทึก…" : "บันทึกสิทธิ์เข้าเรียน"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {certificate && (
         <div className="modal-backdrop">
           <div className="certificate-modal">

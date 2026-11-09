@@ -1,4 +1,4 @@
-import type { CourseData, CourseColor } from "./types";
+import type { CourseData, CourseColor, CourseTargetRole } from "./types";
 import {
   randomBytes,
   scryptSync,
@@ -136,6 +136,9 @@ export function validateCourse(value: unknown): CourseData {
       ? (input.color as CourseColor)
       : "mint",
     icon: "spark",
+    targetRole: ["all", "learner", "admin"].includes(String(input.targetRole))
+      ? (input.targetRole as CourseTargetRole)
+      : "all",
     duration: lessons.reduce((a, l) => a + l.minutes, 0),
     lessons,
     quiz: { question: q.question, options: q.options, answer: q.answer },

@@ -1,6 +1,8 @@
-import type { User } from "../../../lib/types";
+import type { User, Role } from "../../../lib/types";
 import { NextResponse, type NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
+import { writeFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import {
   allCourses,
   courseById,
@@ -10,6 +12,8 @@ import {
   saveProgress,
   saveVideoProgress,
   mutateCourse,
+  updateUserRole,
+  updateUserCourses,
   report,
   throttle,
   demo,
@@ -43,7 +47,9 @@ async function handle(
       const origin = req.headers.get("origin");
       if (origin && new URL(origin).host !== req.headers.get("host"))
         return json({ error: "ไม่อนุญาตคำขอจากเว็บไซต์อื่น" }, 403);
-      if (Number(req.headers.get("content-length") || 0) > 1000000)
+      const isUpload = route === "admin/upload";
+      const maxLimit = isUpload ? 100 * 1024 * 1024 : 1000000;
+      if (Number(req.headers.get("content-length") || 0) > maxLimit)
         return json({ error: "ข้อมูลใหญ่เกินไป" }, 413);
     }
     const uid = readSession(req.cookies.get("aag_session")?.value || "");
@@ -52,6 +58,7 @@ async function handle(
       name: u.name,
       email: u.email,
       role: u.role,
+      assignedCourses: u.assignedCourses,
     });
     if (route === "auth/session" && method === "GET") {
       if (!demo) await database();
@@ -123,8 +130,24 @@ async function handle(
       return r;
     }
     if (!user) return json({ error: "กรุณาเข้าสู่ระบบ" }, 401);
-    if (route === "courses" && method === "GET")
-      return json({ courses: (await allCourses()).map(publicCourse) });
+    if (route === "courses" && method === "GET") {
+      const all = await allCourses();
+      const visible =
+        user.role === "admin"
+          ? all
+          : all.filter((c) => {
+              const roleMatch =
+                !c.targetRole ||
+                c.targetRole === "all" ||
+                c.targetRole === user.role;
+              const assignedMatch =
+                !user.assignedCourses ||
+                user.assignedCourses.includes("all") ||
+                user.assignedCourses.includes(c.id);
+              return roleMatch && assignedMatch;
+            });
+      return json({ courses: visible.map(publicCourse) });
+    }
     if (route === "progress" && method === "GET")
       return json({ progress: await getProgress(user.id) });
     if (route === "progress" && method === "POST") {
@@ -138,6 +161,16 @@ async function handle(
       const c = await courseById(b.courseId);
       const lesson = c?.lessons.find((l) => l.id === b.lessonId);
       if (!c || !lesson) return json({ error: "ไม่พบบทเรียน" }, 400);
+      const roleMatch =
+        !c.targetRole ||
+        c.targetRole === "all" ||
+        c.targetRole === user.role;
+      const assignedMatch =
+        !user.assignedCourses ||
+        user.assignedCourses.includes("all") ||
+        user.assignedCourses.includes(c.id);
+      if (user.role !== "admin" && (!roleMatch || !assignedMatch))
+        return json({ error: "ไม่มีสิทธิ์เข้าถึงคอร์สนี้" }, 403);
       if ("currentTime" in b) {
         if (!lesson.videoUrl)
           return json({ error: "บทเรียนนี้ไม่มีวิดีโอที่ติดตามได้" }, 400);
@@ -174,6 +207,16 @@ async function handle(
       const b = await req.json();
       const c = await courseById(b.courseId);
       if (!c) return json({ error: "ไม่พบคอร์ส" }, 404);
+      const quizRoleMatch =
+        !c.targetRole ||
+        c.targetRole === "all" ||
+        c.targetRole === user.role;
+      const quizAssignedMatch =
+        !user.assignedCourses ||
+        user.assignedCourses.includes("all") ||
+        user.assignedCourses.includes(c.id);
+      if (user.role !== "admin" && (!quizRoleMatch || !quizAssignedMatch))
+        return json({ error: "ไม่มีสิทธิ์เข้าถึงคอร์สนี้" }, 403);
       const p = (await getProgress(user.id)).find((p) => p.courseId === c.id);
       if (!c.lessons.every((l) => p?.completed?.includes(l.id)))
         return json({ error: "กรุณาเรียนให้ครบทุกบทก่อนทำแบบทดสอบ" }, 400);
@@ -184,8 +227,80 @@ async function handle(
     if (route.startsWith("admin/")) {
       if (user.role !== "admin")
         return json({ error: "เฉพาะผู้ดูแลระบบ" }, 403);
+      if (route === "admin/upload" && method === "POST") {
+        const formData = await req.formData();
+        const file = formData.get("video");
+        if (!file || !(file instanceof File))
+          return json({ error: "ไม่พบไฟล์วิดีโอ" }, 400);
+        if (file.size > 100 * 1024 * 1024)
+          return json({ error: "ไฟล์วิดีโอต้องมีขนาดไม่เกิน 100MB" }, 400);
+        const nameLower = file.name.toLowerCase();
+        const ext = nameLower.endsWith(".mp4")
+          ? "mp4"
+          : nameLower.endsWith(".webm")
+            ? "webm"
+            : "";
+        if (!ext)
+          return json({ error: "รองรับเฉพาะไฟล์ MP4 หรือ WebM เท่านั้น" }, 400);
+        const safeBase = `upload-${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
+        const videosDir = join(process.cwd(), "public", "videos");
+        await mkdir(videosDir, { recursive: true });
+        const filePath = join(videosDir, safeBase);
+        const buffer = Buffer.from(await file.arrayBuffer());
+        await writeFile(filePath, buffer);
+        return json({ ok: true, url: `/videos/${safeBase}`, filename: safeBase });
+      }
       if (route === "admin/report" && method === "GET")
         return json({ users: await report() });
+      if (route === "admin/users" && method === "POST") {
+        const b = await req.json();
+        const email = String(b.email || "").trim().toLowerCase();
+        const password = String(b.password || "");
+        const name = String(b.name || "").trim();
+        const role: Role = b.role === "admin" ? "admin" : "learner";
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+          return json({ error: "รูปแบบอีเมลไม่ถูกต้อง" }, 400);
+        if (password.length < 10)
+          return json({ error: "รหัสผ่านต้องมีอย่างน้อย 10 ตัวอักษร" }, 400);
+        if (!name)
+          return json({ error: "กรุณาระบุชื่อผู้ใช้งาน" }, 400);
+        const assignedCourses = Array.isArray(b.assignedCourses)
+          ? b.assignedCourses.map(String)
+          : undefined;
+        const newUser: User = {
+          id: randomUUID(),
+          name: name.slice(0, 100),
+          email,
+          password: hashPassword(password),
+          role,
+          ...(assignedCourses ? { assignedCourses } : {}),
+        };
+        try {
+          await addUser(newUser);
+        } catch (e) {
+          if (
+            e instanceof Error &&
+            (("code" in e && e.code === 11000) || e.message === "Duplicate")
+          )
+            return json({ error: "อีเมลนี้มีบัญชีแล้ว" }, 409);
+          throw e;
+        }
+        return json({ ok: true, user: safeUser(newUser) });
+      }
+      if (route === "admin/users" && method === "PUT") {
+        const b = await req.json();
+        const targetUserId = String(b.userId || "");
+        if (!targetUserId)
+          return json({ error: "ไม่พบรหัสผู้ใช้" }, 400);
+        if ("role" in b) {
+          const targetRole: Role = b.role === "admin" ? "admin" : "learner";
+          await updateUserRole(targetUserId, targetRole);
+        }
+        if ("assignedCourses" in b && Array.isArray(b.assignedCourses)) {
+          await updateUserCourses(targetUserId, b.assignedCourses.map(String));
+        }
+        return json({ ok: true });
+      }
       if (route === "admin/courses" && method === "GET")
         return json({ courses: await allCourses() });
       if (route === "admin/courses" && ["POST", "PUT"].includes(method)) {
