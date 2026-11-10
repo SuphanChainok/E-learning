@@ -1,4 +1,11 @@
-import type { CourseData, CourseColor, CourseTargetRole } from "./types";
+import {
+  type CourseData,
+  type CourseColor,
+  type CourseTargetRole,
+  type Role,
+  type PrimaryRole,
+  normalizeRole,
+} from "./types.ts";
 import {
   randomBytes,
   scryptSync,
@@ -32,15 +39,21 @@ function secret() {
     throw new Error("Configure SESSION_SECRET");
   return value || localSecret;
 }
-export function signSession(id: string): string {
+export function signSession(id: string, role?: Role): string {
   const body = Buffer.from(
-    JSON.stringify({ id, expires: Date.now() + 7 * 86400000 }),
+    JSON.stringify({
+      id,
+      ...(role ? { role: normalizeRole(role) } : {}),
+      expires: Date.now() + 7 * 86400000,
+    }),
   ).toString("base64url");
   return (
     body + "." + createHmac("sha256", secret()).update(body).digest("base64url")
   );
 }
-export function readSession(token: string): string | null {
+export function readSessionPayload(
+  token: string,
+): { id: string; role?: PrimaryRole } | null {
   try {
     const [body, signature] = token.split(".");
     const expected = createHmac("sha256", secret()).update(body).digest();
@@ -49,8 +62,44 @@ export function readSession(token: string): string | null {
       return null;
     const data = JSON.parse(
       Buffer.from(body, "base64url").toString("utf8"),
-    ) as { id: string; expires: number };
-    return data.expires > Date.now() ? data.id : null;
+    ) as { id: string; role?: string; expires: number };
+    if (data.expires <= Date.now() || !data.id) return null;
+    return {
+      id: data.id,
+      ...(data.role ? { role: normalizeRole(data.role) } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+export function readSession(token: string): string | null {
+  return readSessionPayload(token)?.id ?? null;
+}
+export function signOAuthState(redirectUri: string): string {
+  const body = Buffer.from(
+    JSON.stringify({
+      nonce: randomBytes(12).toString("hex"),
+      redirectUri,
+      expires: Date.now() + 10 * 60 * 1000,
+    }),
+  ).toString("base64url");
+  return (
+    body + "." + createHmac("sha256", secret()).update(body).digest("base64url")
+  );
+}
+export function readOAuthState(token: string): { redirectUri: string } | null {
+  try {
+    const [body, signature] = token.split(".");
+    const expected = createHmac("sha256", secret()).update(body).digest();
+    const actual = Buffer.from(signature, "base64url");
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual))
+      return null;
+    const data = JSON.parse(
+      Buffer.from(body, "base64url").toString("utf8"),
+    ) as { redirectUri: string; expires: number };
+    return data.expires > Date.now() && typeof data.redirectUri === "string"
+      ? { redirectUri: data.redirectUri }
+      : null;
   } catch {
     return null;
   }
@@ -136,7 +185,9 @@ export function validateCourse(value: unknown): CourseData {
       ? (input.color as CourseColor)
       : "mint",
     icon: "spark",
-    targetRole: ["all", "learner", "admin"].includes(String(input.targetRole))
+    targetRole: ["all", "employee", "manager", "learner", "admin"].includes(
+      String(input.targetRole),
+    )
       ? (input.targetRole as CourseTargetRole)
       : "all",
     duration: lessons.reduce((a, l) => a + l.minutes, 0),

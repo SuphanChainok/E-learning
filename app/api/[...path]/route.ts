@@ -1,4 +1,10 @@
-import type { User, Role } from "../../../lib/types";
+import {
+  type User,
+  type Role,
+  normalizeRole,
+  canManageCourses,
+  isAdminRole,
+} from "../../../lib/types.ts";
 import { NextResponse, type NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
 import { writeFile, mkdir } from "node:fs/promises";
@@ -8,12 +14,14 @@ import {
   courseById,
   userBy,
   addUser,
+  syncMicrosoftLoginUser,
   getProgress,
   saveProgress,
   saveVideoProgress,
   mutateCourse,
   updateUserRole,
   updateUserCourses,
+  deleteUser,
   report,
   throttle,
   demo,
@@ -27,8 +35,14 @@ import {
   verifyPassword,
   signSession,
   readSession,
+  signOAuthState,
+  readOAuthState,
   validateCourse,
 } from "../../../lib/security.ts";
+import {
+  getMicrosoftAuthorizeUrl,
+  exchangeMicrosoftCodeForProfile,
+} from "../../../lib/microsoftGraph.ts";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const json = (data: unknown, status = 200) =>
@@ -57,7 +71,7 @@ async function handle(
       id: u.id,
       name: u.name,
       email: u.email,
-      role: u.role,
+      role: normalizeRole(u.role),
       assignedCourses: u.assignedCourses,
     });
     if (route === "auth/session" && method === "GET") {
@@ -79,6 +93,90 @@ async function handle(
         path: "/",
       });
       return r;
+    }
+    if (
+      (route === "auth/microsoft" || route === "auth/signin/azure-ad") &&
+      method === "GET"
+    ) {
+      try {
+        const origin = new URL(req.url).origin;
+        const redirectUri =
+          process.env.AZURE_REDIRECT_URI ||
+          `${origin}/api/auth/callback/azure-ad`;
+        const state = signOAuthState(redirectUri);
+        const authorizeUrl = getMicrosoftAuthorizeUrl(redirectUri, state);
+        return NextResponse.redirect(authorizeUrl);
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "ไม่สามารถเริ่มต้นการเข้าสู่ระบบด้วย Microsoft 365 ได้";
+        return NextResponse.redirect(
+          new URL("/?error=" + encodeURIComponent(msg), req.url),
+        );
+      }
+    }
+    if (
+      [
+        "auth/callback/azure-ad",
+        "auth/microsoft/callback",
+        "auth/callback/microsoft-entra-id",
+      ].includes(route) &&
+      method === "GET"
+    ) {
+      try {
+        const url = new URL(req.url);
+        const oauthError = url.searchParams.get("error");
+        const oauthErrorDesc = url.searchParams.get("error_description");
+        if (oauthError) {
+          return NextResponse.redirect(
+            new URL(
+              "/?error=" + encodeURIComponent(oauthErrorDesc || oauthError),
+              req.url,
+            ),
+          );
+        }
+        const code = url.searchParams.get("code") || "";
+        const state = url.searchParams.get("state") || "";
+        const stateData = readOAuthState(state);
+        if (!code || !stateData) {
+          return NextResponse.redirect(
+            new URL(
+              "/?error=" +
+                encodeURIComponent(
+                  "เซสชันการเข้าสู่ระบบ Microsoft หมดอายุหรือไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง",
+                ),
+              req.url,
+            ),
+          );
+        }
+        const profile = await exchangeMicrosoftCodeForProfile(
+          code,
+          stateData.redirectUri,
+        );
+        const account = await syncMicrosoftLoginUser(profile);
+        const r = NextResponse.redirect(new URL("/", req.url));
+        r.cookies.set(
+          "aag_session",
+          signSession(account.id, normalizeRole(account.role)),
+          {
+            httpOnly: true,
+            secure: url.protocol === "https:",
+            sameSite: "lax",
+            maxAge: 604800,
+            path: "/",
+          },
+        );
+        return r;
+      } catch (err) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "เกิดข้อผิดพลาดในการเข้าสู่ระบบด้วย Microsoft 365";
+        return NextResponse.redirect(
+          new URL("/?error=" + encodeURIComponent(msg), req.url),
+        );
+      }
     }
     if (["auth/login", "auth/register"].includes(route) && method === "POST") {
       const b = await req.json();
@@ -102,7 +200,7 @@ async function handle(
           name: String(b.name).trim().slice(0, 100),
           email,
           password: hashPassword(password),
-          role: "learner",
+          role: "employee",
         };
         try {
           await addUser(account);
@@ -120,33 +218,62 @@ async function handle(
           return json({ error: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" }, 401);
       }
       const r = json({ user: safeUser(account) });
-      r.cookies.set("aag_session", signSession(account.id), {
-        httpOnly: true,
-        secure: new URL(req.url).protocol === "https:",
-        sameSite: "lax",
-        maxAge: 604800,
-        path: "/",
-      });
+      r.cookies.set(
+        "aag_session",
+        signSession(account.id, normalizeRole(account.role)),
+        {
+          httpOnly: true,
+          secure: new URL(req.url).protocol === "https:",
+          sameSite: "lax",
+          maxAge: 604800,
+          path: "/",
+        },
+      );
       return r;
     }
     if (!user) return json({ error: "กรุณาเข้าสู่ระบบ" }, 401);
+    const isCourseTargetMatch = (
+      targetRole: string | undefined,
+      userRole: Role,
+    ) => {
+      const normUser = normalizeRole(userRole);
+      if (!targetRole || targetRole === "all") return true;
+      if (targetRole === "learner" || targetRole === "employee")
+        return normUser === "employee";
+      return targetRole === normUser;
+    };
     if (route === "courses" && method === "GET") {
       const all = await allCourses();
-      const visible =
-        user.role === "admin"
-          ? all
-          : all.filter((c) => {
-              const roleMatch =
-                !c.targetRole ||
-                c.targetRole === "all" ||
-                c.targetRole === user.role;
-              const assignedMatch =
-                !user.assignedCourses ||
-                user.assignedCourses.includes("all") ||
-                user.assignedCourses.includes(c.id);
-              return roleMatch && assignedMatch;
-            });
+      const visible = canManageCourses(user.role)
+        ? all
+        : all.filter((c) => {
+            const roleMatch = isCourseTargetMatch(c.targetRole, user.role);
+            const assignedMatch =
+              !user.assignedCourses ||
+              user.assignedCourses.includes("all") ||
+              user.assignedCourses.includes(c.id);
+            return roleMatch && assignedMatch;
+          });
       return json({ courses: visible.map(publicCourse) });
+    }
+    if (route === "courses" && ["POST", "PUT"].includes(method)) {
+      if (!canManageCourses(user.role))
+        return json({ error: "ไม่มีสิทธิ์ในการสร้างหลักสูตร" }, 403);
+      const b = await req.json();
+      let data;
+      try {
+        data = validateCourse(b);
+      } catch (e) {
+        return json(
+          { error: e instanceof Error ? e.message : "ข้อมูลไม่ถูกต้อง" },
+          400,
+        );
+      }
+      const id = method === "POST" ? randomUUID() : String(b.id || "");
+      if (method === "PUT" && !(await courseById(id)))
+        return json({ error: "ไม่พบคอร์ส" }, 404);
+      await mutateCourse(id, data);
+      return json({ ok: true, id });
     }
     if (route === "progress" && method === "GET")
       return json({ progress: await getProgress(user.id) });
@@ -161,15 +288,12 @@ async function handle(
       const c = await courseById(b.courseId);
       const lesson = c?.lessons.find((l) => l.id === b.lessonId);
       if (!c || !lesson) return json({ error: "ไม่พบบทเรียน" }, 400);
-      const roleMatch =
-        !c.targetRole ||
-        c.targetRole === "all" ||
-        c.targetRole === user.role;
+      const roleMatch = isCourseTargetMatch(c.targetRole, user.role);
       const assignedMatch =
         !user.assignedCourses ||
         user.assignedCourses.includes("all") ||
         user.assignedCourses.includes(c.id);
-      if (user.role !== "admin" && (!roleMatch || !assignedMatch))
+      if (!canManageCourses(user.role) && (!roleMatch || !assignedMatch))
         return json({ error: "ไม่มีสิทธิ์เข้าถึงคอร์สนี้" }, 403);
       if ("currentTime" in b) {
         if (!lesson.videoUrl)
@@ -207,15 +331,12 @@ async function handle(
       const b = await req.json();
       const c = await courseById(b.courseId);
       if (!c) return json({ error: "ไม่พบคอร์ส" }, 404);
-      const quizRoleMatch =
-        !c.targetRole ||
-        c.targetRole === "all" ||
-        c.targetRole === user.role;
+      const quizRoleMatch = isCourseTargetMatch(c.targetRole, user.role);
       const quizAssignedMatch =
         !user.assignedCourses ||
         user.assignedCourses.includes("all") ||
         user.assignedCourses.includes(c.id);
-      if (user.role !== "admin" && (!quizRoleMatch || !quizAssignedMatch))
+      if (!canManageCourses(user.role) && (!quizRoleMatch || !quizAssignedMatch))
         return json({ error: "ไม่มีสิทธิ์เข้าถึงคอร์สนี้" }, 403);
       const p = (await getProgress(user.id)).find((p) => p.courseId === c.id);
       if (!c.lessons.every((l) => p?.completed?.includes(l.id)))
@@ -225,8 +346,16 @@ async function handle(
       return json({ passed });
     }
     if (route.startsWith("admin/")) {
-      if (user.role !== "admin")
-        return json({ error: "เฉพาะผู้ดูแลระบบ" }, 403);
+      if (!canManageCourses(user.role))
+        return json(
+          {
+            error:
+              route === "admin/courses"
+                ? "ไม่มีสิทธิ์ในการสร้างหลักสูตร"
+                : "เฉพาะผู้ดูแลระบบหรือผู้จัดการเรียนเท่านั้น",
+          },
+          403,
+        );
       if (route === "admin/upload" && method === "POST") {
         const formData = await req.formData();
         const file = formData.get("video");
@@ -253,11 +382,13 @@ async function handle(
       if (route === "admin/report" && method === "GET")
         return json({ users: await report() });
       if (route === "admin/users" && method === "POST") {
+        if (!isAdminRole(user.role))
+          return json({ error: "เฉพาะผู้ดูแลระบบเท่านั้น" }, 403);
         const b = await req.json();
         const email = String(b.email || "").trim().toLowerCase();
         const password = String(b.password || "");
         const name = String(b.name || "").trim();
-        const role: Role = b.role === "admin" ? "admin" : "learner";
+        const role: Role = normalizeRole(String(b.role || "employee"));
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
           return json({ error: "รูปแบบอีเมลไม่ถูกต้อง" }, 400);
         if (password.length < 10)
@@ -293,12 +424,23 @@ async function handle(
         if (!targetUserId)
           return json({ error: "ไม่พบรหัสผู้ใช้" }, 400);
         if ("role" in b) {
-          const targetRole: Role = b.role === "admin" ? "admin" : "learner";
+          if (!isAdminRole(user.role))
+            return json({ error: "เฉพาะผู้ดูแลระบบเท่านั้นที่เปลี่ยนบทบาทได้" }, 403);
+          const targetRole: Role = normalizeRole(String(b.role || "employee"));
           await updateUserRole(targetUserId, targetRole);
         }
         if ("assignedCourses" in b && Array.isArray(b.assignedCourses)) {
           await updateUserCourses(targetUserId, b.assignedCourses.map(String));
         }
+        return json({ ok: true });
+      }
+      if (path[1] === "users" && path[2] && method === "DELETE") {
+        if (!isAdminRole(user.role))
+          return json({ error: "เฉพาะผู้ดูแลระบบเท่านั้น" }, 403);
+        const targetUserId = decodeURIComponent(path[2]);
+        if (targetUserId === user.id)
+          return json({ error: "ไม่สามารถลบบัญชีของตนเองได้" }, 400);
+        await deleteUser(targetUserId);
         return json({ ok: true });
       }
       if (route === "admin/courses" && method === "GET")
