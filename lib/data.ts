@@ -1,13 +1,361 @@
 import type { Course, PublicCourse } from "./types";
 import { demoVideoCourse } from "./demo-video-course.ts";
 import { asVideoCourse } from "./video-curriculum.ts";
+
 const sourceCourses: Course[] = [
   demoVideoCourse,
+
+  // ==========================================
+  // บริษัท AAG+ (ยานยนต์ EV และโชว์รูม)
+  // ==========================================
+  {
+    id: "aag-zeekr",
+    title: "Product Knowledge: ZEEKR 009 & X",
+    subtitle: "Luxury Electric Mobility & Experience",
+    category: "ผลิตภัณฑ์ยานยนต์",
+    company: "AAG+",
+    thumbnail: "/images/courses/aag-zeekr.jpg",
+    description:
+      "เจาะลึกสเปก เทคโนโลยีความปลอดภัย นวัตกรรมแบตเตอรี่ และจุดเด่นของ ZEEKR 009 (Luxury MPV) และ ZEEKR X (Compact SUV) เพื่อการนำเสนออย่างมืออาชีพ",
+    instructor: "ZEEKR Product Specialist",
+    duration: 45,
+    color: "mint",
+    icon: "spark",
+    level: "ทุกระดับ",
+    lessons: [
+      {
+        id: "zeekr-009-overview",
+        title: "รู้จัก ZEEKR 009: นิยามใหม่แห่ง Luxury MPV ไฟฟ้า",
+        minutes: 15,
+        content:
+          "ZEEKR 009 คือยนตรกรรมไฟฟ้าแบบ Luxury Flagship MPV 6 ที่นั่ง โดดเด่นด้วยห้องโดยสารระดับ First-Class, สถาปัตยกรรม SEA (Sustainable Experience Architecture), แบตเตอรี่ความจุสูง และระบบช่วงล่างถุงลมปรับอัตโนมัติ ให้ความนุ่มนวลและเงียบสงบสูงสุด\n\nจุดเด่นสำคัญ:\n- ระบบขับเคลื่อน 4 ล้อ (AWD) มอเตอร์คู่ กำลังสูงสุด 544 แรงม้า\n- อัตราเร่ง 0-100 กม./ชม. ใน 4.5 วินาที\n- หน้าจอสัมผัสขนาดใหญ่ พร้อมระบบเครื่องเสียงพรีเมียม Yamaha 30 ลำโพง",
+      },
+      {
+        id: "zeekr-x-overview",
+        title: "ZEEKR X: Urban Compact Luxury SUV สไตล์คนรุ่นใหม่",
+        minutes: 15,
+        content:
+          "ZEEKR X ถูกออกแบบเพื่อการขับขี่ในเมืองที่คล่องตัว ดีไซน์ไร้กรอบ (Frameless Doors & Mirrors), ประตูเปิด-ปิดอัตโนมัติ และฟังก์ชันเบาะ Magic Seat ที่พับเก็บเพิ่มพื้นที่บรรทุกได้อย่างอิสระ\n\nฟีเจอร์เด่น:\n- จอควบคุมกลางสไลด์ไปฝั่งผู้โดยสารได้ (Sliding Screen 14.6 นิ้ว)\n- ระบบช่วยเหลือการขับขี่อัจฉริยะ ZEEKR AD พร้อมกล้อง 360 องศา\n- ระยะทางวิ่งสูงสุดกว่า 440 กม. ต่อการชาร์จหนึ่งครั้ง (WLTP)",
+      },
+      {
+        id: "zeekr-safety-tech",
+        title: "ระบบความปลอดภัยและการชาร์จไฟฟ้า",
+        minutes: 15,
+        content:
+          "มาตรฐานความปลอดภัยระดับ 5 ดาว ด้วยโครงสร้างตัวถังอะลูมิเนียมหล่อชิ้นเดียวแบบ Gigacasting ช่วยลดแรงกระแทกได้อย่างมีประสิทธิภาพ พร้อมระบบเตือนและเบรกฉุกเฉินอัตโนมัติรอบคัน รองรับการชาร์จเร็ว DC Fast Charge 150 kW จาก 10-80% ภายใน 30 นาที",
+      },
+    ],
+    quiz: {
+      question: "จุดเด่นของโครงสร้างตัวถังด้านหลังของ ZEEKR 009 คือข้อใด?",
+      options: [
+        "ใช้เหล็กกล้าแบบเชื่อมต่อหลายชิ้น",
+        "ใช้โครงสร้างอะลูมิเนียมหล่อชิ้นเดียว (Gigacasting)",
+        "ใช้โครงสร้างคาร์บอนไฟเบอร์ทั้งหมด",
+      ],
+      answer: 1,
+    },
+  },
+  {
+    id: "aag-sales",
+    title: "เทคนิคการขายและการส่งมอบรถยนต์พรีเมียม",
+    subtitle: "Excellence in Customer Experience",
+    category: "การขายและบริการ",
+    company: "AAG+",
+    thumbnail: "/images/courses/aag-sales.jpg",
+    description:
+      "มาตรฐานการต้อนรับระดับพรีเมียม การนำเสนอฟีเจอร์รถยนต์ไฟฟ้า การเจรจาต่อรอง และกระบวนการส่งมอบรถยนต์สร้างความประทับใจสูงสุด",
+    instructor: "ฝ่ายพัฒนาการขายและบริการ AAG+",
+    duration: 40,
+    color: "blue",
+    icon: "people",
+    level: "เริ่มต้น",
+    lessons: [
+      {
+        id: "premium-greeting",
+        title: "การต้อนรับและการสร้างความประทับใจแรก (First Impression)",
+        minutes: 15,
+        content:
+          "การบริการลูกค้าระดับพรีเมียมเริ่มต้นตั้งแต่การต้อนรับด้วยความสุภาพ การสังเกตความต้องการเฉพาะบุคคล การเสิร์ฟเครื่องดื่มต้อนรับ และการสร้างบรรยากาศในโชว์รูมที่ผ่อนคลายและทันสมัย",
+      },
+      {
+        id: "ev-feature-presentation",
+        title: "เทคนิคการพาทดลองขับและอธิบายระบบ EV ให้เข้าใจง่าย",
+        minutes: 15,
+        content:
+          "เน้นให้ลูกค้าได้สัมผัสอัตราเร่งที่นุ่มนวล ความเงียบในห้องโดยสาร และการทำงานของระบบ One-Pedal Drive พร้อมตอบคำถามเรื่องการติดตั้ง Wallbox ที่บ้านและการวางแผนสถานีชาร์จสาธารณะอย่างมั่นใจ",
+      },
+      {
+        id: "delivery-ceremony",
+        title: "พิธีการส่งมอบรถใหม่ (Handover Ceremony) สร้างความทรงจำ",
+        minutes: 10,
+        content:
+          "การตรวจสอบความพร้อมของตัวรถก่อนส่งมอบ การอธิบายการตั้งค่าแอปพลิเคชันและการเชื่อมต่อสมาร์ทโฟน การมอบของขวัญพิเศษ และการถ่ายภาพเป็นที่ระลึกเพื่อสร้างความผูกพันในระยะยาว",
+      },
+    ],
+    quiz: {
+      question: "สิ่งสำคัญที่สุดในการพาลูกค้าทดลองขับรถยนต์ไฟฟ้า EV คือข้อใด?",
+      options: [
+        "เร่งความเร็วให้เกินขีดจำกัดความปลอดภัย",
+        "ให้ลูกค้าสัมผัสความเงียบ อัตราเร่งที่นุ่มนวล และตอบข้อกังวลเรื่องการชาร์จ",
+        "เน้นขายประกันและของแถมทันทีขณะขับขี่",
+      ],
+      answer: 1,
+    },
+  },
+  {
+    id: "aag-ev-battery",
+    title: "พื้นฐานระบบไฟฟ้าและแบตเตอรี่รถยนต์ EV",
+    subtitle: "High-Voltage Systems & Safety",
+    category: "ทักษะช่างเทคนิค",
+    company: "AAG+",
+    thumbnail: "/images/courses/aag-ev-battery.jpg",
+    description:
+      "เข้าใจสถาปัตยกรรมระบบขับเคลื่อนไฟฟ้า มอเตอร์ขับเคลื่อน แบตเตอรี่แรงดันสูง (High-Voltage Architecture) และมาตรฐานความปลอดภัยในการซ่อมบำรุง",
+    instructor: "ทีมเทคนิคและวิศวกรรมยานยนต์ EV",
+    duration: 60,
+    color: "peach",
+    icon: "digital",
+    level: "ระดับกลาง",
+    lessons: [
+      {
+        id: "hv-architecture",
+        title: "สถาปัตยกรรมระบบไฟฟ้าแรงดันสูง (High-Voltage Architecture)",
+        minutes: 20,
+        content:
+          "โครงสร้างของระบบส่งกำลังไฟฟ้าในรถยนต์ EV ประกอบด้วย Battery Pack, Inverter, มอเตอร์ไฟฟ้า (Traction Motor), และ On-Board Charger (OBC) ทำงานร่วมกันผ่านโครงข่าย CAN bus แรงดันสูงกว่า 400V - 800V",
+      },
+      {
+        id: "bms-thermal-management",
+        title: "ระบบบริหารจัดการแบตเตอรี่ (BMS) และการระบายความร้อน",
+        minutes: 20,
+        content:
+          "Battery Management System ทำหน้าที่ควบคุมแรงดันไฟฟ้าแต่ละ Cell, ป้องกันการ Overcharge/Overdischarge และระบบระบายความร้อนด้วยของเหลว (Liquid Cooling) เพื่อรักษาอุณหภูมิให้อยู่ในเกณฑ์เหมาะสมเพื่อยืดอายุการใช้งาน",
+      },
+      {
+        id: "workshop-safety",
+        title: "มาตรฐานความปลอดภัยและอุปกรณ์ PPE สำหรับงานซ่อมบำรุง EV",
+        minutes: 20,
+        content:
+          "การปลดวงจรไฟฟ้าแรงดันสูง (Manual Service Disconnect: MSD), การวัดตรวจสอบแรงดันตกค้าง (Zero Voltage Verification) และการใช้อุปกรณ์ป้องกัน เช่น ถุงมือฉนวน Class 0 ทนแรงดัน 1,000V",
+      },
+    ],
+    quiz: {
+      question: "ขั้นตอนแรกที่ช่างเทคนิคต้องทำก่อนเริ่มซ่อมบำรุงระบบไฟฟ้าแรงดันสูงคือข้อใด?",
+      options: [
+        "ชาร์จแบตเตอรี่ให้เต็ม 100%",
+        "ถอดปลดสวิตช์ตัดวงจรไฟฟ้าแรงดันสูง (MSD) และตรวจสอบแรงดันตกค้างให้เป็นศูนย์",
+        "ใช้น้ำเปล่าล้างทำความสะอาดขั้วแบตเตอรี่",
+      ],
+      answer: 1,
+    },
+  },
+
+  // ==========================================
+  // บริษัท ABM (พลังงานชีวมวล)
+  // ==========================================
+  {
+    id: "abm-biomass",
+    title: "ความรู้พื้นฐานผลิตภัณฑ์: ไม้สับ กะลาปาล์ม และชีวมวลอัดแท่ง",
+    subtitle: "Sustainable Biomass Fuel Solutions",
+    category: "ผลิตภัณฑ์ชีวมวล",
+    company: "ABM",
+    thumbnail: "/images/courses/abm-biomass.jpg",
+    description:
+      "คุณสมบัติ ค่าความร้อน (Calorific Value) ค่าความชื้น และการเลือกใช้เชื้อเพลิงชีวมวลแต่ละประเภทให้เหมาะกับหม้อต้มไอน้ำ (Boiler) ในภาคอุตสาหกรรม",
+    instructor: "ฝ่ายพัฒนาธุรกิจพลังงานชีวมวล ABM",
+    duration: 50,
+    color: "mint",
+    icon: "spark",
+    level: "เริ่มต้น",
+    lessons: [
+      {
+        id: "biomass-types",
+        title: "ประเภทเชื้อเพลิงชีวมวลหลักของ ABM",
+        minutes: 15,
+        content:
+          "กะลาปาล์ม (Palm Kernel Shell - PKS), ไม้สับยูคาลิปตัส/ไม้ยางพารา (Wood Chips), ขี้เลื่อยอัดแท่ง (Wood Pellets) และกะลาปาล์มอัดเม็ด แต่ละชนิดมีขนาดและลักษณะทางกายภาพที่เหมาะกับเตาเผาที่ต่างกัน",
+      },
+      {
+        id: "calorific-value",
+        title: "ค่าความร้อน (Calorific Value) และความชื้น (Moisture)",
+        minutes: 20,
+        content:
+          "ค่าความร้อนเป็นตัวชี้วัดพลังงานที่ได้จากการเผาไหม้ โดยความชื้นในเนื้อไม้มีผลอย่างมากต่อค่าความร้อนสุทธิ (Net Calorific Value) เชื้อเพลิงที่มีความชื้นต่ำจะช่วยให้การเผาไหม้สมบูรณ์และลดการสิ้นเปลือง",
+      },
+      {
+        id: "industrial-boiler-selection",
+        title: "การเลือกเชื้อเพลิงให้เหมาะสมกับหม้อต้มอุตสาหกรรม",
+        minutes: 15,
+        content:
+          "เตาเผาแบบตะกรับ (Grate Firing) เหมาะกับกะลาปาล์มและไม้สับขนาดใหญ่ ขณะที่เตาเผาแบบฟลูอิดไดซ์เบด (Fluidized Bed) สามารถรองรับชีวมวลที่มีความชื้นสูงและขนาดคละได้ดีกว่า",
+      },
+    ],
+    quiz: {
+      question: "ปัจจัยใดส่งผลให้ค่าความร้อนสุทธิ (Net Calorific Value) ของเชื้อเพลิงชีวมวลลดลงมากที่สุด?",
+      options: [
+        "ปริมาณความชื้นในเนื้อเชื้อเพลิงที่สูงเกินไป",
+        "การเก็บรักษาในที่แห้งและมีหลังคาคลุม",
+        "การคัดแยกขนาดชิ้นไม้ให้สม่ำเสมอ",
+      ],
+      answer: 0,
+    },
+  },
+  {
+    id: "abm-qc",
+    title: "มาตรฐานการควบคุมคุณภาพเชื้อเพลิงโรงไฟฟ้า",
+    subtitle: "Quality Control & Sampling Standard",
+    category: "ควบคุมคุณภาพ",
+    company: "ABM",
+    thumbnail: "/images/courses/abm-qc.jpg",
+    description:
+      "ขั้นตอนการสุ่มตัวอย่าง (Sampling) การตรวจวัดค่าความชื้น ปริมาณเถ้า (Ash Content) และมาตรฐานการตรวจรับและส่งมอบเชื้อเพลิงให้กับโรงไฟฟ้าชีวมวล",
+    instructor: "ฝ่ายควบคุมคุณภาพและห้องปฏิบัติการ ABM",
+    duration: 45,
+    color: "blue",
+    icon: "shield",
+    level: "ระดับกลาง",
+    lessons: [
+      {
+        id: "sampling-procedure",
+        title: "มาตรฐานการสุ่มตัวอย่างชีวมวลตามเกณฑ์ ASTM/ISO",
+        minutes: 15,
+        content:
+          "การสุ่มตัวอย่างจากกองสินค้าและรถบรรทุกตามจุดที่กำหนดอย่างเป็นระบบ เพื่อให้ได้ตัวแทนตัวอย่าง (Representative Sample) ที่สะท้อนคุณภาพที่แท้จริงของสินค้างวดนั้น",
+      },
+      {
+        id: "lab-ash-moisture",
+        title: "การวิเคราะห์ค่าความชื้น ปริมาณเถ้า และสารระเหย",
+        minutes: 15,
+        content:
+          "การนำตัวอย่างเข้าตู้อบแห้งและเตาเผาอุณหภูมิสูงเพื่อคำนวณร้อยละของความชื้น (Moisture Content) และปริมาณเถ้า (Ash Content) ซึ่งโรงไฟฟ้าใช้เป็นเกณฑ์หักลดราคาหรือปฏิเสธการรับมอบ",
+      },
+      {
+        id: "acceptance-criteria",
+        title: "เกณฑ์การตรวจรับและการจัดการเมื่อสินค้าไม่ได้มาตรฐาน",
+        minutes: 15,
+        content:
+          "ขั้นตอนการบันทึกรายงานผลวิเคราะห์ (Certificate of Analysis - COA), การเจรจาปรับปรุงคุณภาพ และการส่งคืนสินค้าที่ไม่ตรงตามข้อกำหนดสัญญา",
+      },
+    ],
+    quiz: {
+      question: "ปริมาณเถ้า (Ash Content) ที่สูงเกินมาตรฐานในเชื้อเพลิงชีวมวลส่งผลเสียอย่างไรต่อโรงไฟฟ้า?",
+      options: [
+        "ทำให้หม้อต้มร้อนเร็วเกินไป",
+        "ก่อให้เกิดตะกรันเกาะท่อหม้อต้ม และเพิ่มภาระการกำจัดเถ้า",
+        "ช่วยให้ท่อไอน้ำสะอาดขึ้น",
+      ],
+      answer: 1,
+    },
+  },
+
+  // ==========================================
+  // บริษัท AGE (ถ่านหิน, โลจิสติกส์, พลังงาน)
+  // ==========================================
+  {
+    id: "age-safety",
+    title: "ความปลอดภัยในการปฏิบัติงานลานกองถ่านหินและคลังสินค้า",
+    subtitle: "Zero Accident & Yard Safety Standards",
+    category: "ความปลอดภัย",
+    company: "AGE",
+    thumbnail: "/images/courses/age-safety.jpg",
+    description:
+      "แนวทางการป้องกันอัคคีภัย การตรวจสอบอุณหภูมิกองถ่านหิน การใช้อุปกรณ์คุ้มครองความปลอดภัยส่วนบุคคล (PPE) และมาตรการควบคุมฝุ่นละออง",
+    instructor: "ฝ่ายความปลอดภัย อาชีวอนามัย และสิ่งแวดล้อม (SHE) AGE",
+    duration: 50,
+    color: "lavender",
+    icon: "shield",
+    level: "ทุกระดับ",
+    lessons: [
+      {
+        id: "spontaneous-combustion",
+        title: "การป้องกันการลุกไหม้ได้เองของถ่านหิน (Spontaneous Combustion)",
+        minutes: 15,
+        content:
+          "ถ่านหินบางประเภทมีความสามารถในการดูดซับออกซิเจนและเกิดปฏิกิริยาคายความร้อน การบดอัดกองถ่านหิน (Compaction) การตรวจวัดอุณหภูมิแกนกลางเป็นประจำ และการสเปรย์น้ำควบคุมเป็นมาตรการหลักในการป้องกัน",
+      },
+      {
+        id: "dust-control-ppe",
+        title: "การควบคุมฝุ่นละอองและอุปกรณ์คุ้มครองความปลอดภัย (PPE)",
+        minutes: 15,
+        content:
+          "การเปิดใช้งานระบบม่านละอองน้ำ (Water Sprinkler) รอบลานกอง, แนวกำแพงกั้นลม (Windbreak Wall), และการสวมใส่หน้ากากกันฝุ่นมาตรฐาน N95 หรือ P100 พร้อมหมวกนิรภัยและเสื้อกั๊กสะท้อนแสงตลอดเวลาที่ปฏิบัติงาน",
+      },
+      {
+        id: "heavy-machinery-safety",
+        title: "ความปลอดภัยในการทำงานร่วมกับเครื่องจักรกลหนัก",
+        minutes: 20,
+        content:
+          "การกำหนดจุดบอด (Blind Spots) ของรถตัก (Wheel Loader) และรถขุด, กฎการรักษาระยะห่าง 5 เมตรจากแนวการทำงานของเครื่องจักร, และการใช้วิทยุสื่อสารยืนยันตำแหน่งก่อนเข้าใกล้",
+      },
+    ],
+    quiz: {
+      question: "วิธีที่มีประสิทธิภาพที่สุดในการป้องกันการลุกไหม้ได้เองในกองถ่านหินคือข้อใด?",
+      options: [
+        "การบดอัดผิวกองถ่านหินเพื่อจำกัดอากาศและตรวจวัดอุณหภูมิสม่ำเสมอ",
+        "การตากแดดให้แห้งสนิทตลอดทั้งวัน",
+        "การพรวนดินให้กองถ่านหินโปร่งลมมากที่สุด",
+      ],
+      answer: 0,
+    },
+  },
+  {
+    id: "age-logistics",
+    title: "มาตรฐานการขนส่งและระบบโลจิสติกส์ (รถบรรทุกและเรือลำเลียง)",
+    subtitle: "Supply Chain & Multi-Modal Fleet Operations",
+    category: "โลจิสติกส์",
+    company: "AGE",
+    thumbnail: "/images/courses/age-logistics.jpg",
+    description:
+      "การบริหารจัดการเส้นทางเดินเรือลำเลียง มาตรฐานการบรรทุกสินค้าเทกองอย่างปลอดภัย และระบบบริหารจัดการกองยานพาหนะผ่านดาวเทียม (GPS Tracking)",
+    instructor: "ฝ่ายปฏิบัติการโลจิสติกส์และกองเรือ AGE",
+    duration: 55,
+    color: "peach",
+    icon: "digital",
+    level: "ทุกระดับ",
+    lessons: [
+      {
+        id: "barge-fleet-management",
+        title: "การจัดการกองเรือลำเลียงแม่น้ำและชายฝั่ง",
+        minutes: 20,
+        content:
+          "การวางแผนเดินเรือตามระดับน้ำขึ้น-น้ำลงในแม่น้ำเจ้าพระยาและป่าสัก การควบคุมน้ำหนักบรรทุกตามแนวน้ำบรรทุก (Plimsoll Line) และความปลอดภัยในการเทียบท่าเรือขนถ่ายสินค้าท่าหลวง",
+      },
+      {
+        id: "truck-transport-safety",
+        title: "มาตรฐานการขนส่งทางรถบรรทุกและการคลุมผ้าใบ",
+        minutes: 15,
+        content:
+          "กฎหมายจำกัดน้ำหนักบรรทุกยานพาหนะ, การตรวจสอบผ้าใบคลุมมิดชิดป้องกันสินค้าตกหล่นและฝุ่นฟุ้งกระจาย และระบบทำความสะอาดล้อก่อนออกจากลานสินค้า",
+      },
+      {
+        id: "gps-fleet-tracking",
+        title: "การติดตามกองยานพาหนะด้วย GPS และศูนย์ควบคุมขนส่ง (Fleet Control)",
+        minutes: 20,
+        content:
+          "การติดตามความเร็ว พฤติกรรมการขับขี่ การจอดพักตามกำหนด และการตรวจจับสถานะแบบ Real-time เพื่อส่งมอบสินค้าตรงเวลาและปลอดภัยสูงสุด",
+      },
+    ],
+    quiz: {
+      question: "ก่อนรถบรรทุกสินค้าเทกองจะออกจากลานสินค้า ต้องดำเนินการขั้นตอนใดเพื่อความปลอดภัยและสิ่งแวดล้อม?",
+      options: [
+        "เปิดผ้าใบเพื่อระบายอากาศขณะวิ่ง",
+        "คลุมผ้าใบให้มิดชิด ชั่งน้ำหนักให้อยู่ในเกณฑ์ และล้างทำความสะอาดล้อรถ",
+        "ขับด้วยความเร็วสูงสุดเพื่อให้ถึงจุดหมายเร็วขึ้น",
+      ],
+      answer: 1,
+    },
+  },
+
+  // ==========================================
+  // Standard Video Curriculum Courses
+  // ==========================================
   {
     id: "welcome-aag",
     title: "ก้าวแรกสู่การเป็นส่วนหนึ่งของ AAG+",
     subtitle: "Your journey starts here",
     category: "องค์กรและวัฒนธรรม",
+    company: "AAG+",
+    thumbnail: "/images/courses/fallback-aag.jpg",
     description:
       "รู้จักตัวตน วิสัยทัศน์ และวิธีการทำงานร่วมกันของเรา พร้อมเริ่มต้นเส้นทางใหม่อย่างมั่นใจ",
     instructor: "ทีม People & Culture",
@@ -53,6 +401,8 @@ const sourceCourses: Course[] = [
     title: "ทำงานให้คล่อง ด้วยเครื่องมือดิจิทัล",
     subtitle: "Work smarter, every day",
     category: "ทักษะดิจิทัล",
+    company: "AGE",
+    thumbnail: "/images/courses/fallback-age.jpg",
     description:
       "จัดระเบียบงาน สื่อสารกับทีม และใช้เครื่องมือดิจิทัลให้เกิดประโยชน์ในทุกวัน",
     instructor: "ทีม Digital Transformation",
@@ -98,6 +448,8 @@ const sourceCourses: Course[] = [
     title: "Cybersecurity ใกล้ตัวกว่าที่คิด",
     subtitle: "Think before you click",
     category: "ความปลอดภัย",
+    company: "ABM",
+    thumbnail: "/images/courses/fallback-abm.jpg",
     description:
       "รู้ทันอีเมลหลอกลวง ปกป้องข้อมูลสำคัญ และสร้างพฤติกรรมการใช้งานที่ปลอดภัย",
     instructor: "ทีม IT Security",
@@ -143,6 +495,8 @@ const sourceCourses: Course[] = [
     title: "สื่อสารอย่างเข้าใจ ทำงานอย่างเข้าทีม",
     subtitle: "Better conversations, better teams",
     category: "พัฒนาตนเอง",
+    company: "AGE",
+    thumbnail: "/images/courses/fallback-age.jpg",
     description:
       "ฝึกฟังอย่างตั้งใจ สื่อสารให้ตรงประเด็น และให้ feedback ที่สร้างการเปลี่ยนแปลง",
     instructor: "ทีม Learning & Development",
@@ -177,7 +531,9 @@ const sourceCourses: Course[] = [
     },
   },
 ];
+
 export const courses: Course[] = sourceCourses.map(asVideoCourse);
+
 export function publicCourse(course: Course): PublicCourse {
   const { quiz, ...rest } = course;
   return { ...rest, quiz: { question: quiz.question, options: quiz.options } };

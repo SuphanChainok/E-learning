@@ -1,4 +1,6 @@
 "use client";
+import { useState, useEffect } from "react";
+import Image from "next/image";
 import type { LucideIcon } from "lucide-react";
 import { Plus, Sparkles, LogOut } from "lucide-react";
 import {
@@ -7,7 +9,9 @@ import {
   type View,
   canManageCourses,
   getRoleLabel,
+  normalizeRole,
 } from "../../lib/types";
+import { useCompany } from "../../lib/company-context";
 
 export type NavItem = [View, LucideIcon, string];
 
@@ -36,16 +40,48 @@ export default function Sidebar({
   openCreateCourseModal,
   onLogout,
 }: SidebarProps) {
+  const roleKey = normalizeRole(user.role);
+  const { activeCompany, companyInfo } = useCompany();
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  useEffect(() => {
+    setLogoFailed(false);
+  }, [activeCompany]);
+
   return (
     <>
       <aside className={"sidebar " + (mobile ? "opened" : "")}>
-        <a className="brand" href="/">
-          AAG<span>+</span>
-          <small>LEARNING</small>
-        </a>
+        <div className="sidebar-header">
+          <a className="brand flex items-center gap-3" href="/" title={companyInfo.name}>
+            {!logoFailed ? (
+              <div className="brand-logo-wrap w-11 h-11 rounded-xl bg-white border border-slate-200/90 p-1 flex items-center justify-center flex-shrink-0 shadow-xs">
+                <Image
+                  key={companyInfo.logoPath}
+                  src={companyInfo.logoPath}
+                  alt={companyInfo.name}
+                  width={40}
+                  height={40}
+                  className="w-full h-full object-contain"
+                  priority
+                  onError={() => setLogoFailed(true)}
+                />
+              </div>
+            ) : (
+              <span className={`brand-badge badge-${activeCompany.toLowerCase().replace("+", "-plus")}`}>
+                {companyInfo.badge}
+              </span>
+            )}
+            <span className="brand-copy">
+              <span className="brand-title">
+                {companyInfo.shortName}
+              </span>
+              <small>{companyInfo.headerSubtitle}</small>
+            </span>
+          </a>
+        </div>
         <div className="workspace-tag">
           <span />
-          พื้นที่เรียนรู้สำหรับพนักงาน
+          พื้นที่เรียนรู้ {companyInfo.shortName}
         </div>
         <p className="nav-caption">YOUR LEARNING SPACE</p>
         <nav>
@@ -53,7 +89,10 @@ export default function Sidebar({
             <button
               key={key}
               className={view === key && !editor ? "active" : ""}
-              onClick={() => navigate(key)}
+              onClick={() => {
+                navigate(key);
+                setMobile(false);
+              }}
             >
               <Icon size={19} />
               {title}
@@ -66,40 +105,43 @@ export default function Sidebar({
             <button
               type="button"
               className={
-                view === "admin" && editor && !editor.id ? "active" : ""
+                "create-course-nav-btn " +
+                (view === "admin" && editor && !editor.id ? "active" : "")
               }
-              onClick={openCreateCourseModal}
-              style={{
-                marginTop: "6px",
-                background:
-                  view === "admin" && editor && !editor.id
-                    ? undefined
-                    : "rgba(45, 78, 36, 0.14)",
-                color: "#d9f0d0",
-                fontWeight: 600,
+              onClick={() => {
+                openCreateCourseModal();
+                setMobile(false);
               }}
             >
               <Plus size={19} />
-              เพิ่มคอร์ส
+              เพิ่มคอร์สใหม่
             </button>
           )}
         </nav>
         <div className="sidebar-bottom">
           <div className="growth-note">
-            <Sparkles size={24} />
+            <Sparkles size={22} />
             <b>เก่งขึ้นอีกนิด ในทุกวัน</b>
             <p>
               ทุกการเรียนรู้ คืออีกก้าว
               <br />
-              ของการเติบโต
+              ของการเติบโตไปกับ AGE Group
             </p>
-            <span>LET’S GROW TOGETHER ↗</span>
+            <span>AGE GROUP ACADEMY ↗</span>
           </div>
-          <button className="profile" onClick={onLogout}>
-            <span className="avatar">{user.name.charAt(0)}</span>
-            <span>
+          <button
+            className="profile"
+            onClick={onLogout}
+            title="คลิกเพื่อออกจากระบบ"
+          >
+            <span className={"avatar role-" + roleKey}>
+              {user.name.charAt(0).toUpperCase()}
+            </span>
+            <span className="profile-info">
               <b>{user.name}</b>
-              <small>{getRoleLabel(user.role)}</small>
+              <small className={"role-pill " + roleKey}>
+                {getRoleLabel(user.role)}
+              </small>
             </span>
             <LogOut size={17} />
           </button>
@@ -115,4 +157,3 @@ export default function Sidebar({
     </>
   );
 }
-

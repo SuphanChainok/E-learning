@@ -5,6 +5,7 @@ export const demoVideoCourse: Course = {
   title: "ทดลองเรียนด้วยวิดีโอ · 30 วินาที",
   subtitle: "Watch your learning grow",
   category: "ทดลองระบบวิดีโอ",
+  company: "AAG+",
   description:
     "คลิปสาธิตการเรียนด้วยวิดีโอ ทดลองดู หยุด และกลับมาเรียนต่อ พร้อมดูเวลารับชม เปอร์เซ็นต์ และสถานะเรียนสำเร็จ",
   instructor: "AAG+ Learning",

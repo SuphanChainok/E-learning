@@ -5,6 +5,7 @@ import {
   type View,
   COURSE_CATEGORIES,
 } from "../../lib/types";
+import { useCompany } from "../../lib/company-context";
 import CourseCard from "../CourseCard";
 
 export interface MyCoursesViewProps {
@@ -30,8 +31,19 @@ export default function MyCoursesView({
   openCourse,
   navigate,
 }: MyCoursesViewProps) {
-  const myCourses = filtered.filter((c) => percent(c) > 0);
-  const totalMyCoursesCount = courses.filter((c) => percent(c) > 0).length;
+  const { activeCompany } = useCompany();
+  const companyCourses = courses.filter((c) => (c.company || "AGE") === activeCompany);
+  const companyFiltered = filtered.filter((c) => (c.company || "AGE") === activeCompany);
+  const myCourses = companyFiltered.filter((c) => percent(c) > 0);
+  const totalMyCoursesCount = companyCourses.filter((c) => percent(c) > 0).length;
+
+  // Derive categories dynamically from the active company's actual courses
+  const companyCategories = [
+    "ทั้งหมด",
+    ...Array.from(
+      new Set(companyCourses.map((c) => c.category).filter(Boolean)),
+    ),
+  ];
 
   return (
     <>
@@ -61,7 +73,7 @@ export default function MyCoursesView({
           </label>
         </div>
         <div className="filters">
-          {COURSE_CATEGORIES.map((c) => (
+          {companyCategories.map((c) => (
             <button
               className={category === c ? "selected" : ""}
               key={c}
@@ -72,12 +84,13 @@ export default function MyCoursesView({
           ))}
         </div>
         <div className="course-grid">
-          {myCourses.map((c) => (
+          {myCourses.map((c, index) => (
             <CourseCard
               key={c.id}
               course={c}
               percent={percent}
               openCourse={openCourse}
+              priority={index <= 2}
             />
           ))}
         </div>

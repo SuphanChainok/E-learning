@@ -2,6 +2,7 @@ import {
   type CourseData,
   type CourseColor,
   type CourseTargetRole,
+  type Company,
   type Role,
   type PrimaryRole,
   normalizeRole,
@@ -178,6 +179,13 @@ export function validateCourse(value: unknown): CourseData {
     title: input.title.trim(),
     description: String(input.description || "").slice(0, 1000),
     category: String(input.category || "พัฒนาตนเอง").slice(0, 60),
+    company: ["ABM", "AGE", "AAG+"].includes(String(input.company))
+      ? (input.company as Company)
+      : "AGE",
+    thumbnail:
+      typeof input.thumbnail === "string" && input.thumbnail.trim()
+        ? input.thumbnail.trim()
+        : undefined,
     instructor: String(input.instructor || "AAG+ Academy").slice(0, 100),
     subtitle: "Grow your potential",
     level: "ทุกระดับ",
@@ -193,5 +201,13 @@ export function validateCourse(value: unknown): CourseData {
     duration: lessons.reduce((a, l) => a + l.minutes, 0),
     lessons,
     quiz: { question: q.question, options: q.options, answer: q.answer },
+    createdAt:
+      typeof input.createdAt === "string" && input.createdAt.trim()
+        ? input.createdAt.trim()
+        : undefined,
+    updatedAt:
+      typeof input.updatedAt === "string" && input.updatedAt.trim()
+        ? input.updatedAt.trim()
+        : undefined,
   };
 }

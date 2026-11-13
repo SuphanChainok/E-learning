@@ -1,10 +1,12 @@
 "use client";
-import { useState, useEffect, useCallback, type FormEvent } from "react";
+import { useState, useEffect, useCallback, useMemo, type FormEvent } from "react";
+import Image from "next/image";
 import {
   LayoutDashboard,
   BookOpen,
   GraduationCap,
   Settings,
+  FolderKanban,
   Award,
   X,
 } from "lucide-react";
@@ -19,12 +21,16 @@ import {
   type VideoProgress,
   type Role,
   type View,
+  type Company,
   getRoleLabel,
   normalizeRole,
   canManageCourses,
   isAdminRole,
+  sortCoursesLatestFirst,
 } from "../lib/types";
+import { CompanyProvider, useCompany } from "../lib/company-context";
 import { courseProgress } from "../lib/course-progress";
+import { formatLessonTitle } from "../lib/lesson-format";
 import Navbar from "../components/layout/Navbar";
 import Sidebar, { type NavItem } from "../components/layout/Sidebar";
 import DashboardView from "../components/views/DashboardView";
@@ -52,6 +58,12 @@ async function api(path: string, method = "GET", body?: unknown) {
     headers: { "Content-Type": "application/json" },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
+  if (r.status === 401 && path !== "auth/session" && path !== "auth/login") {
+    if (typeof window !== "undefined") {
+      window.location.reload();
+    }
+    throw Error("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง");
+  }
   const data = await r.json();
   if (!r.ok) throw Error(data.error || "เกิดข้อผิดพลาด");
   return data;
@@ -71,6 +83,20 @@ async function uploadVideoFile(
   return data;
 }
 
+async function uploadCoverImage(
+  file: File,
+): Promise<{ ok: boolean; url: string; filename: string }> {
+  const formData = new FormData();
+  formData.append("image", file);
+  const r = await fetch("/api/admin/upload-image", {
+    method: "POST",
+    body: formData,
+  });
+  const data = await r.json();
+  if (!r.ok) throw Error(data.error || "อัปโหลดรูปภาพไม่สำเร็จ");
+  return data;
+}
+
 function detectVideoDuration(fileOrUrl: File | string): Promise<number> {
   return new Promise((resolve) => {
     const video = document.createElement("video");
@@ -83,7 +109,7 @@ function detectVideoDuration(fileOrUrl: File | string): Promise<number> {
       if (typeof fileOrUrl !== "string") {
         try {
           URL.revokeObjectURL(url);
-        } catch {}
+        } catch { }
       }
     };
     video.onloadedmetadata = () => {
@@ -103,11 +129,28 @@ function detectVideoDuration(fileOrUrl: File | string): Promise<number> {
   });
 }
 
-const emptyCourse = (): CourseDraft => ({
+const emptyCourse = (company: Company = "AGE"): CourseDraft => ({
   title: "",
   description: "",
-  category: "พัฒนาตนเอง",
-  instructor: "AAG+ Academy",
+  category:
+    company === "AAG+"
+      ? "ผลิตภัณฑ์ยานยนต์"
+      : company === "ABM"
+        ? "ผลิตภัณฑ์ชีวมวล"
+        : "ความปลอดภัย",
+  company,
+  thumbnail:
+    company === "ABM"
+      ? "/images/courses/abm-biomass.jpg"
+      : company === "AAG+"
+        ? "/images/courses/aag-zeekr.jpg"
+        : "/images/courses/age-safety.jpg",
+  instructor:
+    company === "ABM"
+      ? "ABM Academy"
+      : company === "AAG+"
+        ? "AAG+ Academy"
+        : "AGE Group Academy",
   color: "mint",
   targetRole: "all",
   lessons: [
@@ -123,10 +166,27 @@ const emptyCourse = (): CourseDraft => ({
 });
 
 export default function Academy() {
+  const [user, setUser] = useState<PublicUser | null>(null);
+
+  return (
+    <CompanyProvider user={user}>
+      <AcademyContent user={user} setUser={setUser} />
+    </CompanyProvider>
+  );
+}
+
+function AcademyContent({
+  user,
+  setUser,
+}: {
+  user: PublicUser | null;
+  setUser: (u: PublicUser | null) => void;
+}) {
+  const { activeCompany, companyInfo } = useCompany();
   const [ready, setReady] = useState(false),
     [demo, setDemo] = useState(false),
     [fallback, setFallback] = useState(false),
-    [user, setUser] = useState<PublicUser | null>(null),
+    [dbError, setDbError] = useState<string | null>(null),
     [view, setView] = useState<View>("dashboard"),
     [courses, setCourses] = useState<PublicCourse[]>([]),
     [progress, setProgress] = useState<Progress[]>([]),
@@ -170,11 +230,18 @@ export default function Academy() {
     [],
   );
 
-  async function refresh() {
-    const [c, p] = await Promise.all([api("courses"), api("progress")]);
-    setCourses(c.courses);
-    setProgress(p.progress);
-  }
+  const refresh = useCallback(
+    async (comp: Company = activeCompany) => {
+      const coursesPath = comp ? `courses?company=${comp}` : "courses";
+      const [c, p] = await Promise.all([
+        api(coursesPath as "courses"),
+        api("progress"),
+      ]);
+      setCourses(c.courses);
+      setProgress(p.progress);
+    },
+    [activeCompany],
+  );
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -188,21 +255,34 @@ export default function Academy() {
         setUser(d.user);
         setDemo(d.demo);
         setFallback(d.fallback);
-        if (d.user) await refresh();
+        if (d.dbError) setDbError(d.dbError);
+        if (d.user) await refresh(activeCompany);
       })
       .catch(notify)
       .finally(() => setReady(true));
-  }, [notify]);
+  }, [notify, refresh, activeCompany, setUser]);
 
   useEffect(() => {
-    if (view === "admin" && user && canManageCourses(user.role))
-      Promise.all([api("admin/courses"), api("admin/report")])
+    if (user && ready) {
+      setSelected(null);
+      setCategory("ทั้งหมด");
+      refresh(activeCompany).catch(notify);
+    }
+  }, [activeCompany, user, ready, refresh, notify]);
+
+  useEffect(() => {
+    if (view === "admin" && user && canManageCourses(user.role)) {
+      const adminPath = activeCompany
+        ? `admin/courses?company=${activeCompany}`
+        : "admin/courses";
+      Promise.all([api(adminPath as "admin/courses"), api("admin/report")])
         .then(([c, r]) => {
           setAdminCourses(c.courses);
           setUsers(r.users);
         })
         .catch(notify);
-  }, [view, user, notify]);
+    }
+  }, [view, user, activeCompany, notify]);
 
   const pFor = (id: string) => progress.find((p) => p.courseId === id);
   const videoFor = (courseId: string, lessonId: string) =>
@@ -227,34 +307,41 @@ export default function Academy() {
         item.courseId !== video.courseId
           ? item
           : {
-              ...item,
-              completed: video.completed
-                ? Array.from(new Set([...item.completed, video.lessonId]))
-                : item.completed,
-              videoProgress: [
-                ...(item.videoProgress ?? []).filter(
-                  (entry) => entry.lessonId !== video.lessonId,
-                ),
-                video,
-              ],
-            },
+            ...item,
+            completed: video.completed
+              ? Array.from(new Set([...item.completed, video.lessonId]))
+              : item.completed,
+            videoProgress: [
+              ...(item.videoProgress ?? []).filter(
+                (entry) => entry.lessonId !== video.lessonId,
+              ),
+              video,
+            ],
+          },
       );
     });
   }, []);
 
+  // Filter courses by activeCompany on frontend for immediate UI responsiveness and company isolation
+  const resolveCourseComp = (c: PublicCourse) => c.company || "AGE";
+  const companyCourses = useMemo(() => {
+    const list = courses.filter((c) => resolveCourseComp(c) === activeCompany);
+    return sortCoursesLatestFirst(list);
+  }, [courses, activeCompany]);
+
   const percent = (c: PublicCourse) => courseProgress(c, pFor(c.id)).percent;
-  const finished = courses.filter(
+  const finished = companyCourses.filter(
     (c) => courseProgress(c, pFor(c.id)).complete,
   );
-  const ongoing = courses.filter((c) => percent(c) > 0 && percent(c) < 100);
+  const ongoing = companyCourses.filter((c) => percent(c) > 0 && percent(c) < 100);
   const certified = finished.filter((c) => pFor(c.id)?.passed);
-  const minutes = courses.reduce(
+  const minutes = companyCourses.reduce(
     (n, c) => n + courseProgress(c, pFor(c.id)).seconds / 60,
     0,
   );
   const searchTerm = query.trim().toLocaleLowerCase();
   const selectedCategory = category.trim() || "ทั้งหมด";
-  const filtered = courses.filter(
+  const filtered = companyCourses.filter(
     (c) =>
       (selectedCategory === "ทั้งหมด" || c.category === selectedCategory) &&
       (!searchTerm ||
@@ -379,9 +466,12 @@ export default function Academy() {
   }
 
   function openCoursePermModal(u: UserReport) {
+    const assignableCourses = isAdminRole(user?.role)
+      ? adminCourses
+      : adminCourses.filter((c) => c.targetRole !== "admin");
     setManagingUserCourses(u);
     if (!u.assignedCourses || u.assignedCourses.includes("all")) {
-      setSelectedCourseIds(adminCourses.map((c) => c.id));
+      setSelectedCourseIds(assignableCourses.map((c) => c.id));
     } else {
       setSelectedCourseIds(u.assignedCourses);
     }
@@ -391,7 +481,10 @@ export default function Academy() {
     if (!managingUserCourses) return;
     setBusy(true);
     try {
-      const isAll = selectedCourseIds.length === adminCourses.length;
+      const assignableCourses = isAdminRole(user?.role)
+        ? adminCourses
+        : adminCourses.filter((c) => c.targetRole !== "admin");
+      const isAll = selectedCourseIds.length === assignableCourses.length;
       const toSave = isAll ? ["all"] : selectedCourseIds;
       await api("admin/users", "PUT", {
         userId: managingUserCourses.id,
@@ -430,7 +523,7 @@ export default function Academy() {
     window.scrollTo({ top: 0 });
     setSelected(null);
     setView("admin");
-    setEditor(emptyCourse());
+    setEditor(emptyCourse(activeCompany));
     setMobile(false);
     setError("");
   }
@@ -493,7 +586,7 @@ export default function Academy() {
         detectVideoDuration(file),
         uploadVideoFile(file),
       ]);
-      const baseName = file.name.replace(/\.[^/.]+$/, "");
+      const cleanTitle = formatLessonTitle(file.name, index);
       const durSeconds = duration > 0 ? duration : 60;
       const durMinutes = Math.max(1, Math.ceil(durSeconds / 60));
       setEditor((prev) => {
@@ -504,10 +597,10 @@ export default function Academy() {
             if (j !== index) return l;
             return {
               ...l,
-              title: l.title.trim() ? l.title : baseName,
+              title: l.title.trim() ? l.title : cleanTitle,
               content: l.content.trim()
                 ? l.content
-                : `บทเรียนวิดีโอ: ${baseName}\nกรุณารับชมวิดีโอให้จบเพื่อบันทึกความคืบหน้าการเรียนรู้`,
+                : "กรุณารับชมวิดีโอบทเรียนให้จบเพื่อบันทึกความคืบหน้าการเรียนรู้",
               videoUrl: uploadRes.url,
               videoDurationSeconds: durSeconds,
               minutes: durMinutes,
@@ -538,11 +631,11 @@ export default function Academy() {
           detectVideoDuration(file),
           uploadVideoFile(file),
         ]);
-        const baseName = file.name.replace(/\.[^/.]+$/, "");
+        const cleanTitle = formatLessonTitle(file.name, i);
         const durSeconds = duration > 0 ? duration : 60;
         newLessons.push({
-          title: baseName,
-          content: `บทเรียนวิดีโอ: ${baseName}\nกรุณารับชมวิดีโอให้จบเพื่อบันทึกความคืบหน้าการเรียนรู้`,
+          title: cleanTitle,
+          content: "กรุณารับชมวิดีโอบทเรียนให้จบเพื่อบันทึกความคืบหน้าการเรียนรู้",
           minutes: Math.max(1, Math.ceil(durSeconds / 60)),
           videoUrl: uploadRes.url,
           videoDurationSeconds: durSeconds,
@@ -611,14 +704,14 @@ export default function Academy() {
       quiz: editor.quiz.question.trim()
         ? editor.quiz
         : {
-            question: "การสื่อสารที่มีประสิทธิภาพในทีมควรเริ่มต้นจากสิ่งใด?",
-            options: [
-              "การรับฟังอย่างตั้งใจและเข้าใจเป้าหมายร่วมกัน",
-              "การสั่งการโดยไม่ต้องรอฟังข้อเสนอแนะ",
-              "การหลีกเลี่ยงการพูดคุยเมื่อเกิดปัญหา",
-            ],
-            answer: 0,
-          },
+          question: "การสื่อสารที่มีประสิทธิภาพในทีมควรเริ่มต้นจากสิ่งใด?",
+          options: [
+            "การรับฟังอย่างตั้งใจและเข้าใจเป้าหมายร่วมกัน",
+            "การสั่งการโดยไม่ต้องรอฟังข้อเสนอแนะ",
+            "การหลีกเลี่ยงการพูดคุยเมื่อเกิดปัญหา",
+          ],
+          answer: 0,
+        },
     });
   }
 
@@ -639,9 +732,18 @@ export default function Academy() {
     if (!editor) return;
     setBusy(true);
     try {
-      await api("admin/courses", editor.id ? "PUT" : "POST", editor);
-      await refresh();
-      setAdminCourses((await api("admin/courses")).courses);
+      const targetCompany: Company = editor.company || activeCompany || "AGE";
+      const coursePayload: CourseDraft = {
+        ...editor,
+        company: targetCompany,
+        thumbnail: editor.thumbnail?.trim() || undefined,
+      };
+      await api("admin/courses", editor.id ? "PUT" : "POST", coursePayload);
+      await refresh(activeCompany);
+      const adminPath = activeCompany
+        ? `admin/courses?company=${activeCompany}`
+        : "admin/courses";
+      setAdminCourses((await api(adminPath as "admin/courses")).courses);
       setEditor(null);
     } catch (e) {
       notify(e);
@@ -655,8 +757,11 @@ export default function Academy() {
     setBusy(true);
     try {
       await api("admin/courses/" + c.id, "DELETE");
-      await refresh();
-      setAdminCourses((await api("admin/courses")).courses);
+      await refresh(activeCompany);
+      const adminPath = activeCompany
+        ? `admin/courses?company=${activeCompany}`
+        : "admin/courses";
+      setAdminCourses((await api(adminPath as "admin/courses")).courses);
     } catch (e) {
       notify(e);
     } finally {
@@ -665,12 +770,20 @@ export default function Academy() {
   }
 
   function exportReport() {
+    const isAdmin = isAdminRole(user?.role);
+    const targetUsers = isAdmin
+      ? users
+      : users.filter((u) => normalizeRole(u.role) === "employee");
     const rows = [
-      ["ชื่อ", "อีเมล", "สิทธิ์", "คอร์สที่ผ่าน"],
-      ...users.map((u) => [
+      isAdmin
+        ? ["ชื่อ", "อีเมล", "สิทธิ์", "คอร์สที่ผ่าน"]
+        : ["ชื่อผู้เข้าอบรม", "อีเมล", "แผนก/ตำแหน่ง", "คอร์สที่ผ่าน"],
+      ...targetUsers.map((u) => [
         u.name,
         u.email,
-        getRoleLabel(u.role),
+        isAdmin
+          ? getRoleLabel(u.role)
+          : [u.jobTitle, u.department].filter(Boolean).join(" / ") || "-",
         u.progress.filter(
           (p) => p.passed && courses.some((c) => c.id === p.courseId),
         ).length,
@@ -697,7 +810,7 @@ export default function Academy() {
     );
     const a = document.createElement("a");
     a.href = url;
-    a.download = "aag-learning-report.csv";
+    a.download = "age-group-learning-report.csv";
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -792,9 +905,24 @@ export default function Academy() {
   if (!ready)
     return (
       <div className="loading">
-        <span className="brand">
-          AAG<span>+</span>
-        </span>
+        <div className="brand flex items-center gap-3.5">
+          <div className="w-14 h-14 rounded-2xl bg-white border border-slate-200/90 p-1.5 flex items-center justify-center flex-shrink-0 shadow-md">
+            <Image
+              src={companyInfo?.logoPath || "/images/logos/age-logo.png"}
+              alt={companyInfo?.name || "AGE Group"}
+              width={48}
+              height={48}
+              className="w-full h-full object-contain"
+              priority
+            />
+          </div>
+          <span className="brand-copy text-left">
+            <span className="brand-title">
+              {companyInfo?.shortName || "AGE Group"}
+            </span>
+            <small>{companyInfo?.headerSubtitle || "LEARNING ACADEMY"}</small>
+          </span>
+        </div>
         <p>กำลังเตรียมพื้นที่เรียนรู้ของคุณ…</p>
       </div>
     );
@@ -819,6 +947,7 @@ export default function Academy() {
         busy={busy}
         demo={demo}
         fallback={fallback}
+        dbError={dbError}
         handleAdminPasswordLogin={handleAdminPasswordLogin}
         handleSendOtp={handleSendOtp}
         handleVerifyOtp={handleVerifyOtp}
@@ -833,12 +962,12 @@ export default function Academy() {
     ["certificates", Award, "ใบประกาศนียบัตร"],
     ...(canManageCourses(user.role)
       ? [
-          [
-            "admin",
-            Settings,
-            isAdminRole(user.role) ? "จัดการระบบ" : "จัดการหลักสูตร",
-          ] as NavItem,
-        ]
+        [
+          "admin",
+          isAdminRole(user.role) ? Settings : FolderKanban,
+          isAdminRole(user.role) ? "จัดการระบบ" : "จัดการหลักสูตร",
+        ] as NavItem,
+      ]
       : []),
   ];
 
@@ -848,7 +977,7 @@ export default function Academy() {
         user={user}
         view={view}
         nav={nav}
-        coursesCount={courses.length}
+        coursesCount={companyCourses.length}
         editor={editor}
         mobile={mobile}
         setMobile={setMobile}
@@ -866,14 +995,18 @@ export default function Academy() {
           setMobile={setMobile}
           demo={demo}
           fallback={fallback}
-          openCreateCourseModal={openCreateCourseModal}
         />
-        <main className="content">
+        <main className="content pt-20 md:pt-24">
           {fallback && (
             <div className="error" role="status">
-              ฐานข้อมูลยังเชื่อมต่อไม่ได้
-              กำลังแสดงคอร์สตัวอย่างและข้อมูลในหน่วยความจำชั่วคราว
-              ข้อมูลที่เปลี่ยนแปลงจะไม่ถูกบันทึกถาวร
+              <div>
+                <b>ฐานข้อมูลยังเชื่อมต่อไม่ได้:</b> กำลังแสดงคอร์สตัวอย่างและข้อมูลในหน่วยความจำชั่วคราว ข้อมูลที่เปลี่ยนแปลงจะไม่ถูกบันทึกถาวร
+              </div>
+              {dbError && (
+                <div className="mt-2 text-xs font-mono bg-red-950/10 p-2 rounded border border-red-400/30 break-all text-red-900">
+                  <b>สาเหตุข้อผิดพลาดจากเซิร์ฟเวอร์:</b> {dbError}
+                </div>
+              )}
             </div>
           )}
           {error && (
@@ -884,124 +1017,135 @@ export default function Academy() {
               </button>
             </div>
           )}
-          {selected ? (
-            <ClassroomView
-              selected={selected}
-              setSelected={setSelected}
-              lesson={lesson}
-              setLesson={setLesson}
-              busy={busy}
-              answer={answer}
-              setAnswer={setAnswer}
-              quizResult={quizResult}
-              pFor={pFor}
-              videoFor={videoFor}
-              updateVideoProgress={updateVideoProgress}
-              percent={percent}
-              complete={complete}
-              submitQuiz={submitQuiz}
-              notify={notify}
-            />
-          ) : view === "admin" ? (
-            <AdminView
-              user={user}
-              courses={courses}
-              adminCourses={adminCourses}
-              users={users}
-              filteredUsers={filteredUsers}
-              editor={editor}
-              setEditor={setEditor}
-              emptyCourse={emptyCourse}
-              busy={busy}
-              uploadingIndex={uploadingIndex}
-              uploadStatus={uploadStatus}
-              saveCourse={saveCourse}
-              removeCourse={removeCourse}
-              autoFillCourseTemplate={autoFillCourseTemplate}
-              autoFillQuiz={autoFillQuiz}
-              duplicateLesson={duplicateLesson}
-              handleSingleVideoUpload={handleSingleVideoUpload}
-              handleBatchVideoUpload={handleBatchVideoUpload}
-              detectVideoDuration={detectVideoDuration}
-              showAddUser={showAddUser}
-              setShowAddUser={setShowAddUser}
-              newUserName={newUserName}
-              setNewUserName={setNewUserName}
-              newUserEmail={newUserEmail}
-              setNewUserEmail={setNewUserEmail}
-              newUserPassword={newUserPassword}
-              setNewUserPassword={setNewUserPassword}
-              newUserRole={newUserRole}
-              setNewUserRole={setNewUserRole}
-              handleAddUser={handleAddUser}
-              syncingUsers={syncingUsers}
-              syncStatus={syncStatus}
-              handleSyncUsers={handleSyncUsers}
-              exportReport={exportReport}
-              userSearchQuery={userSearchQuery}
-              setUserSearchQuery={setUserSearchQuery}
-              userRoleFilter={userRoleFilter}
-              setUserRoleFilter={setUserRoleFilter}
-              handleRoleChange={handleRoleChange}
-              openCoursePermModal={openCoursePermModal}
-              handleDeleteUser={handleDeleteUser}
-            />
-          ) : view === "certificates" ? (
-            <CertificatesView
-              user={user}
-              certified={certified}
-              setCertificate={setCertificate}
-              navigate={navigate}
-            />
-          ) : view === "dashboard" ? (
-            <DashboardView
-              user={user}
-              courses={courses}
-              filtered={filtered}
-              ongoing={ongoing}
-              finished={finished}
-              minutes={minutes}
-              category={category}
-              setCategory={setCategory}
-              setQuery={setQuery}
-              percent={percent}
-              openCourse={openCourse}
-              navigate={navigate}
-            />
-          ) : view === "my" ? (
-            <MyCoursesView
-              courses={courses}
-              filtered={filtered}
-              query={query}
-              setQuery={setQuery}
-              category={category}
-              setCategory={setCategory}
-              percent={percent}
-              openCourse={openCourse}
-              navigate={navigate}
-            />
-          ) : (
-            <CatalogView
-              courses={courses}
-              filtered={filtered}
-              query={query}
-              setQuery={setQuery}
-              category={category}
-              setCategory={setCategory}
-              percent={percent}
-              openCourse={openCourse}
-            />
-          )}
+          <div
+            key={selected ? `classroom-${selected.id}` : view}
+            className="view-container animate-fade-slide"
+          >
+            {selected ? (
+              <ClassroomView
+                selected={selected}
+                setSelected={setSelected}
+                lesson={lesson}
+                setLesson={setLesson}
+                busy={busy}
+                answer={answer}
+                setAnswer={setAnswer}
+                quizResult={quizResult}
+                pFor={pFor}
+                videoFor={videoFor}
+                updateVideoProgress={updateVideoProgress}
+                percent={percent}
+                complete={complete}
+                submitQuiz={submitQuiz}
+                notify={notify}
+              />
+            ) : view === "admin" ? (
+              <AdminView
+                user={user}
+                courses={companyCourses}
+                adminCourses={adminCourses}
+                users={users}
+                filteredUsers={filteredUsers}
+                editor={editor}
+                setEditor={setEditor}
+                emptyCourse={emptyCourse}
+                busy={busy}
+                uploadingIndex={uploadingIndex}
+                uploadStatus={uploadStatus}
+                uploadCoverImage={uploadCoverImage}
+                saveCourse={saveCourse}
+                removeCourse={removeCourse}
+                autoFillCourseTemplate={autoFillCourseTemplate}
+                autoFillQuiz={autoFillQuiz}
+                duplicateLesson={duplicateLesson}
+                handleSingleVideoUpload={handleSingleVideoUpload}
+                handleBatchVideoUpload={handleBatchVideoUpload}
+                detectVideoDuration={detectVideoDuration}
+                showAddUser={showAddUser}
+                setShowAddUser={setShowAddUser}
+                newUserName={newUserName}
+                setNewUserName={setNewUserName}
+                newUserEmail={newUserEmail}
+                setNewUserEmail={setNewUserEmail}
+                newUserPassword={newUserPassword}
+                setNewUserPassword={setNewUserPassword}
+                newUserRole={newUserRole}
+                setNewUserRole={setNewUserRole}
+                handleAddUser={handleAddUser}
+                syncingUsers={syncingUsers}
+                syncStatus={syncStatus}
+                handleSyncUsers={handleSyncUsers}
+                exportReport={exportReport}
+                userSearchQuery={userSearchQuery}
+                setUserSearchQuery={setUserSearchQuery}
+                userRoleFilter={userRoleFilter}
+                setUserRoleFilter={setUserRoleFilter}
+                handleRoleChange={handleRoleChange}
+                openCoursePermModal={openCoursePermModal}
+                handleDeleteUser={handleDeleteUser}
+              />
+            ) : view === "certificates" ? (
+              <CertificatesView
+                user={user}
+                certified={certified}
+                setCertificate={setCertificate}
+                navigate={navigate}
+              />
+            ) : view === "dashboard" ? (
+              <DashboardView
+                user={user}
+                courses={companyCourses}
+                filtered={filtered}
+                ongoing={ongoing}
+                finished={finished}
+                minutes={minutes}
+                category={category}
+                setCategory={setCategory}
+                setQuery={setQuery}
+                percent={percent}
+                openCourse={openCourse}
+                navigate={navigate}
+              />
+            ) : view === "my" ? (
+              <MyCoursesView
+                courses={companyCourses}
+                filtered={filtered}
+                query={query}
+                setQuery={setQuery}
+                category={category}
+                setCategory={setCategory}
+                percent={percent}
+                openCourse={openCourse}
+                navigate={navigate}
+              />
+            ) : (
+              <CatalogView
+                courses={companyCourses}
+                filtered={filtered}
+                query={query}
+                setQuery={setQuery}
+                category={category}
+                setCategory={setCategory}
+                percent={percent}
+                openCourse={openCourse}
+              />
+            )}
+          </div>
           <footer>
-            AAG+ LEARNING <span>สร้างโอกาสใหม่ ด้วยการเรียนรู้ไม่สิ้นสุด</span>
-            <small>© {new Date().getFullYear()} AAG+</small>
+            AGE GROUP LEARNING{" "}
+            <span>สร้างโอกาสใหม่ ด้วยการเรียนรู้ไม่สิ้นสุด</span>
+            <small>© {new Date().getFullYear()} AGE Group</small>
           </footer>
         </main>
       </div>
       <CourseAccessModal
         managingUserCourses={managingUserCourses}
         setManagingUserCourses={setManagingUserCourses}
-        adminCourses={adminCourses}
+        adminCourses={
+          isAdminRole(user.role)
+            ? adminCourses
+            : adminCourses.filter((c) => c.targetRole !== "admin")
+        }
         selectedCourseIds={selectedCourseIds}
         setSelectedCourseIds={setSelectedCourseIds}
         busy={busy}

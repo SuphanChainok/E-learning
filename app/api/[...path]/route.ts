@@ -1,9 +1,11 @@
 import {
   type User,
   type Role,
+  type Company,
   normalizeRole,
   canManageCourses,
   isAdminRole,
+  resolveCourseCompany,
 } from "../../../lib/types.ts";
 import { NextResponse, type NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
@@ -28,6 +30,7 @@ import {
   fallbackMode,
   database,
   activateDemoFallback,
+  dbLastError,
 } from "../../../lib/store.ts";
 import { publicCourse } from "../../../lib/data.ts";
 import {
@@ -61,7 +64,8 @@ async function handle(
       const origin = req.headers.get("origin");
       if (origin && new URL(origin).host !== req.headers.get("host"))
         return json({ error: "ไม่อนุญาตคำขอจากเว็บไซต์อื่น" }, 403);
-      const isUpload = route === "admin/upload";
+      const isUpload =
+        route === "admin/upload" || route === "admin/upload-image";
       const maxLimit = isUpload ? 100 * 1024 * 1024 : 1000000;
       if (Number(req.headers.get("content-length") || 0) > maxLimit)
         return json({ error: "ข้อมูลใหญ่เกินไป" }, 413);
@@ -72,6 +76,8 @@ async function handle(
       name: u.name,
       email: u.email,
       role: normalizeRole(u.role),
+      company: u.company,
+      allowedCompanies: u.allowedCompanies,
       assignedCourses: u.assignedCourses,
     });
     if (route === "auth/session" && method === "GET") {
@@ -81,6 +87,7 @@ async function handle(
         user: user ? safeUser(user) : null,
         demo,
         fallback: fallbackMode,
+        dbError: dbLastError || null,
       });
     }
     const user = uid ? await userBy("id", uid) : null;
@@ -190,17 +197,33 @@ async function handle(
         return json({ error: "ลองหลายครั้งเกินไป กรุณารอ 15 นาที" }, 429);
       let account: User | null | undefined;
       if (route === "auth/register") {
+        const allowedDomains = ["age.co.th", "abm.co.th", "aag.ac.th", "aag.demo"];
+        const emailDomain = email.split("@")[1];
+        if (!allowedDomains.includes(emailDomain)) {
+          return json(
+            {
+              error:
+                "ระบบเปิดรับเฉพาะอีเมลองค์กรเครือ AGE Group เท่านั้น (@age.co.th, @abm.co.th, @aag.ac.th)",
+            },
+            403,
+          );
+        }
         if (password.length < 10 || !String(b.name || "").trim())
           return json(
             { error: "กรอกชื่อ และรหัสผ่านอย่างน้อย 10 ตัวอักษร" },
             400,
           );
+        let assignedCompany: Company = "AGE";
+        if (emailDomain.includes("abm")) assignedCompany = "ABM";
+        else if (emailDomain.includes("aag")) assignedCompany = "AAG+";
         account = {
           id: randomUUID(),
           name: String(b.name).trim().slice(0, 100),
           email,
           password: hashPassword(password),
           role: "employee",
+          company: assignedCompany,
+          allowedCompanies: [assignedCompany],
         };
         try {
           await addUser(account);
@@ -213,9 +236,39 @@ async function handle(
           throw e;
         }
       } else {
+        const envAdminEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+        const envAdminPass = process.env.ADMIN_PASSWORD;
+        const isEnvAdminLogin = Boolean(
+          envAdminEmail &&
+            envAdminPass &&
+            email === envAdminEmail &&
+            password === envAdminPass,
+        );
+
         account = await userBy("email", email);
-        if (!account || !verifyPassword(password, account.password))
+
+        if (isEnvAdminLogin) {
+          if (!account) {
+            account = {
+              id: "admin-initial",
+              name: "ผู้ดูแลระบบ AAG+",
+              email,
+              password: hashPassword(password),
+              role: "admin",
+            };
+          } else {
+            account = {
+              ...account,
+              role: "admin",
+            };
+          }
+        } else if (
+          !account ||
+          !account.password ||
+          !verifyPassword(password, account.password)
+        ) {
           return json({ error: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" }, 401);
+        }
       }
       const r = json({ user: safeUser(account) });
       r.cookies.set(
@@ -243,8 +296,14 @@ async function handle(
       return targetRole === normUser;
     };
     if (route === "courses" && method === "GET") {
-      const all = await allCourses();
-      const visible = canManageCourses(user.role)
+      const companyQuery = req.nextUrl.searchParams.get("company");
+      const targetCompany =
+        companyQuery && ["ABM", "AGE", "AAG+"].includes(companyQuery)
+          ? (companyQuery as Company)
+          : undefined;
+
+      const all = await allCourses(targetCompany ? { company: targetCompany } : undefined);
+      let visible = canManageCourses(user.role)
         ? all
         : all.filter((c) => {
             const roleMatch = isCourseTargetMatch(c.targetRole, user.role);
@@ -254,6 +313,24 @@ async function handle(
               user.assignedCourses.includes(c.id);
             return roleMatch && assignedMatch;
           });
+
+      if (targetCompany) {
+        if (
+          isAdminRole(user.role) ||
+          !user.company ||
+          user.company === targetCompany ||
+          (user.allowedCompanies && user.allowedCompanies.includes(targetCompany))
+        ) {
+          visible = visible.filter((c) => resolveCourseCompany(c) === targetCompany);
+        } else {
+          const userComp = resolveCourseCompany({ company: user.company });
+          visible = visible.filter((c) => resolveCourseCompany(c) === userComp);
+        }
+      } else if (!isAdminRole(user.role) && user.company) {
+        const userComp = resolveCourseCompany({ company: user.company });
+        visible = visible.filter((c) => resolveCourseCompany(c) === userComp);
+      }
+
       return json({ courses: visible.map(publicCourse) });
     }
     if (route === "courses" && ["POST", "PUT"].includes(method)) {
@@ -270,8 +347,25 @@ async function handle(
         );
       }
       const id = method === "POST" ? randomUUID() : String(b.id || "");
-      if (method === "PUT" && !(await courseById(id)))
-        return json({ error: "ไม่พบคอร์ส" }, 404);
+      if (method === "PUT") {
+        const existing = await courseById(id);
+        if (!existing) return json({ error: "ไม่พบคอร์ส" }, 404);
+        if (
+          !isAdminRole(user.role) &&
+          user.company &&
+          user.company !== resolveCourseCompany(existing)
+        ) {
+          return json(
+            { error: "คุณไม่มีสิทธิ์แก้ไขหลักสูตรของบริษัทอื่น" },
+            403,
+          );
+        }
+        data.createdAt = existing.createdAt || data.createdAt || new Date().toISOString();
+        data.updatedAt = new Date().toISOString();
+      } else {
+        data.createdAt = data.createdAt || new Date().toISOString();
+        data.updatedAt = new Date().toISOString();
+      }
       await mutateCourse(id, data);
       return json({ ok: true, id });
     }
@@ -293,7 +387,14 @@ async function handle(
         !user.assignedCourses ||
         user.assignedCourses.includes("all") ||
         user.assignedCourses.includes(c.id);
-      if (!canManageCourses(user.role) && (!roleMatch || !assignedMatch))
+      const courseCompany = resolveCourseCompany(c);
+      const companyMatch =
+        isAdminRole(user.role) ||
+        !user.company ||
+        user.company === courseCompany ||
+        (user.allowedCompanies && user.allowedCompanies.includes(courseCompany));
+
+      if (!canManageCourses(user.role) && (!roleMatch || !assignedMatch || !companyMatch))
         return json({ error: "ไม่มีสิทธิ์เข้าถึงคอร์สนี้" }, 403);
       if ("currentTime" in b) {
         if (!lesson.videoUrl)
@@ -336,7 +437,14 @@ async function handle(
         !user.assignedCourses ||
         user.assignedCourses.includes("all") ||
         user.assignedCourses.includes(c.id);
-      if (!canManageCourses(user.role) && (!quizRoleMatch || !quizAssignedMatch))
+      const quizCourseCompany = resolveCourseCompany(c);
+      const quizCompanyMatch =
+        isAdminRole(user.role) ||
+        !user.company ||
+        user.company === quizCourseCompany ||
+        (user.allowedCompanies && user.allowedCompanies.includes(quizCourseCompany));
+
+      if (!canManageCourses(user.role) && (!quizRoleMatch || !quizAssignedMatch || !quizCompanyMatch))
         return json({ error: "ไม่มีสิทธิ์เข้าถึงคอร์สนี้" }, 403);
       const p = (await getProgress(user.id)).find((p) => p.courseId === c.id);
       if (!c.lessons.every((l) => p?.completed?.includes(l.id)))
@@ -378,6 +486,51 @@ async function handle(
         const buffer = Buffer.from(await file.arrayBuffer());
         await writeFile(filePath, buffer);
         return json({ ok: true, url: `/videos/${safeBase}`, filename: safeBase });
+      }
+      if (route === "admin/upload-image" && method === "POST") {
+        const formData = await req.formData();
+        const file = formData.get("image") || formData.get("file");
+        if (!file || !(file instanceof File))
+          return json({ error: "ไม่พบไฟล์รูปภาพหรือวิดีโอ" }, 400);
+        const nameLower = file.name.toLowerCase();
+        let ext = "";
+        let isVideo = false;
+        if (nameLower.endsWith(".jpg") || nameLower.endsWith(".jpeg")) ext = "jpg";
+        else if (nameLower.endsWith(".png")) ext = "png";
+        else if (nameLower.endsWith(".webp")) ext = "webp";
+        else if (nameLower.endsWith(".mp4")) { ext = "mp4"; isVideo = true; }
+        else if (nameLower.endsWith(".webm")) { ext = "webm"; isVideo = true; }
+        else if (nameLower.endsWith(".mov")) { ext = "mp4"; isVideo = true; }
+        if (!ext)
+          return json(
+            {
+              error:
+                "รองรับเฉพาะไฟล์รูปภาพ (.jpg, .jpeg, .png, .webp) หรือวิดีโอ (.mp4, .webm) เท่านั้น",
+            },
+            400,
+          );
+        const maxLimit = isVideo ? 100 * 1024 * 1024 : 15 * 1024 * 1024;
+        if (file.size > maxLimit)
+          return json(
+            {
+              error: isVideo
+                ? "ไฟล์วิดีโอหน้าปกต้องมีขนาดไม่เกิน 100MB"
+                : "ไฟล์รูปภาพหน้าปกต้องมีขนาดไม่เกิน 15MB",
+            },
+            400,
+          );
+        const safeBase = `cover-${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
+        const targetDir = isVideo
+          ? join(process.cwd(), "public", "videos")
+          : join(process.cwd(), "public", "images", "courses");
+        await mkdir(targetDir, { recursive: true });
+        const filePath = join(targetDir, safeBase);
+        const buffer = Buffer.from(await file.arrayBuffer());
+        await writeFile(filePath, buffer);
+        const url = isVideo
+          ? `/videos/${safeBase}`
+          : `/images/courses/${safeBase}`;
+        return json({ ok: true, url, filename: safeBase, isVideo });
       }
       if (route === "admin/report" && method === "GET")
         return json({ users: await report() });
@@ -443,8 +596,21 @@ async function handle(
         await deleteUser(targetUserId);
         return json({ ok: true });
       }
-      if (route === "admin/courses" && method === "GET")
-        return json({ courses: await allCourses() });
+      if (route === "admin/courses" && method === "GET") {
+        const companyQuery = req.nextUrl.searchParams.get("company");
+        const targetCompany =
+          companyQuery && ["ABM", "AGE", "AAG+"].includes(companyQuery)
+            ? (companyQuery as Company)
+            : undefined;
+
+        const all = await allCourses(targetCompany ? { company: targetCompany } : undefined);
+        if (targetCompany) {
+          return json({
+            courses: all.filter((c) => resolveCourseCompany(c) === targetCompany),
+          });
+        }
+        return json({ courses: all });
+      }
       if (route === "admin/courses" && ["POST", "PUT"].includes(method)) {
         const b = await req.json();
         let data;
@@ -457,12 +623,41 @@ async function handle(
           );
         }
         const id = method === "POST" ? randomUUID() : String(b.id || "");
-        if (method === "PUT" && !(await courseById(id)))
-          return json({ error: "ไม่พบคอร์ส" }, 404);
+        if (method === "PUT") {
+          const existing = await courseById(id);
+          if (!existing) return json({ error: "ไม่พบคอร์ส" }, 404);
+          if (
+            !isAdminRole(user.role) &&
+            user.company &&
+            user.company !== resolveCourseCompany(existing)
+          ) {
+            return json(
+              { error: "คุณไม่มีสิทธิ์แก้ไขหลักสูตรของบริษัทอื่น" },
+              403,
+            );
+          }
+          data.createdAt = existing.createdAt || data.createdAt || new Date().toISOString();
+          data.updatedAt = new Date().toISOString();
+        } else {
+          data.createdAt = data.createdAt || new Date().toISOString();
+          data.updatedAt = new Date().toISOString();
+        }
         await mutateCourse(id, data);
         return json({ ok: true, id });
       }
       if (path[1] === "courses" && path[2] && method === "DELETE") {
+        const existing = await courseById(path[2]);
+        if (!existing) return json({ error: "ไม่พบคอร์ส" }, 404);
+        if (
+          !isAdminRole(user.role) &&
+          user.company &&
+          user.company !== resolveCourseCompany(existing)
+        ) {
+          return json(
+            { error: "คุณไม่มีสิทธิ์ลบหลักสูตรของบริษัทอื่น" },
+            403,
+          );
+        }
         await mutateCourse(path[2], null, true);
         return json({ ok: true });
       }
@@ -470,14 +665,53 @@ async function handle(
     return json({ error: "ไม่พบ API" }, 404);
   } catch (e) {
     const switchedToFallback = activateDemoFallback(e);
+    const errMessage = e instanceof Error ? e.message : String(e);
+    const errName = e instanceof Error ? e.name : "UnknownError";
+
+    console.error("❌ AAG API Server / Database Error:", {
+      route: requestedRoute,
+      method: req.method,
+      name: errName,
+      message: errMessage,
+      code: (e as any)?.code,
+      cause: (e as any)?.cause?.message || (e as any)?.cause,
+    });
+
     if (requestedRoute === "auth/session" && switchedToFallback)
-      return json({ user: null, demo: true, fallback: true });
-    console.error("AAG API:", e instanceof Error ? e.name : "Unknown error");
+      return json({
+        user: null,
+        demo: true,
+        fallback: true,
+        dbError: `[${errName}] ${errMessage}`,
+      });
+
+    let hint = "";
+    if (
+      errMessage.includes("alert number 80") ||
+      errMessage.includes("SSL") ||
+      errMessage.includes("TLS") ||
+      errName === "MongoServerSelectionError"
+    ) {
+      hint = " (ตรวจสอบ MongoDB Atlas: IP ของเครื่องคุณอาจยังไม่ได้ถูก Whitelist ใน Network Access)";
+    } else if (
+      errMessage.includes("bad auth") ||
+      errMessage.includes("AuthenticationFailed") ||
+      (e as any)?.code === 8000
+    ) {
+      hint = " (ตรวจสอบ MONGODB_URI: ชื่อผู้ใช้หรือรหัสผ่านฐานข้อมูลไม่ถูกต้อง)";
+    } else if (errMessage.includes("MONGODB_URI is required")) {
+      hint = " (ตรวจสอบ .env.local: ไม่พบค่า MONGODB_URI)";
+    }
+
+    const directErrorMsg = `[${errName}] ${errMessage}`;
+
     return json(
       {
         error: switchedToFallback
-          ? "เชื่อมต่อฐานข้อมูลไม่ได้ชั่วคราว ระบบเปลี่ยนเป็นข้อมูลสาธิตในหน่วยความจำแล้ว กรุณาโหลดหน้าใหม่และเข้าสู่ระบบบัญชีสาธิต ข้อมูลชั่วคราวจะหายเมื่อเซิร์ฟเวอร์เริ่มใหม่"
-          : "ระบบไม่พร้อมใช้งาน กรุณาตรวจสอบ MONGODB_URI, MONGODB_DB และการตั้งค่าเซิร์ฟเวอร์",
+          ? `เชื่อมต่อฐานข้อมูลไม่ได้ชั่วคราว (${directErrorMsg}${hint}) ระบบเปิดใช้ข้อมูลสาธิตในหน่วยความจำแล้ว`
+          : `ระบบไม่พร้อมใช้งาน: ${directErrorMsg}${hint}`,
+        errorDetails: errMessage,
+        errorName: errName,
       },
       503,
     );

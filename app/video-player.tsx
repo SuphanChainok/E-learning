@@ -8,7 +8,7 @@ import {
   type MouseEvent,
   type SyntheticEvent,
 } from "react";
-import { Maximize, Minimize, Pause, Play, RotateCcw } from "lucide-react";
+import { Maximize, Minimize, Pause, Play, RotateCcw, EyeOff, X } from "lucide-react";
 import type { VideoProgress } from "../lib/types";
 
 interface VideoPlayerProps {
@@ -66,6 +66,8 @@ export default function VideoPlayer({
   const [playing, setPlaying] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [visibilityNotice, setVisibilityNotice] = useState(false);
+  const visibilityNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearHideTimer = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
@@ -151,6 +153,52 @@ export default function VideoPlayer({
     };
   }, [sendProgress]);
 
+  // Auto-pause video when switching tabs, minimizing, or blurring window
+  useEffect(() => {
+    function pauseIfPlaying() {
+      const video = player.current;
+      if (video && !video.paused && !video.ended) {
+        video.pause();
+        setVisibilityNotice(true);
+        setControlsVisible(true);
+      }
+    }
+
+    function handleVisibilityChange() {
+      if (document.hidden) {
+        pauseIfPlaying();
+      }
+    }
+
+    function handleBlur() {
+      pauseIfPlaying();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleBlur);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleBlur);
+      if (visibilityNoticeTimer.current) {
+        clearTimeout(visibilityNoticeTimer.current);
+      }
+    };
+  }, []);
+
+  // Auto-dismiss the visibility notice toast after 9 seconds if not manually closed
+  useEffect(() => {
+    if (visibilityNotice) {
+      if (visibilityNoticeTimer.current) clearTimeout(visibilityNoticeTimer.current);
+      visibilityNoticeTimer.current = setTimeout(() => {
+        setVisibilityNotice(false);
+      }, 9000);
+    }
+    return () => {
+      if (visibilityNoticeTimer.current) clearTimeout(visibilityNoticeTimer.current);
+    };
+  }, [visibilityNotice]);
+
   const seekMax = Math.min(
     durationSeconds,
     Math.max(maxWatchedTime, latest.current.currentTime),
@@ -193,8 +241,19 @@ export default function VideoPlayer({
   function togglePlay() {
     const video = player.current;
     if (!video) return;
-    if (video.paused) void video.play();
-    else video.pause();
+    setVisibilityNotice(false);
+    if (video.paused) {
+      video.play()?.catch((err: unknown) => {
+        if (
+          err instanceof Error &&
+          (err.name === "NotSupportedError" || err.name === "NotAllowedError")
+        ) {
+          setMediaError(true);
+        }
+      });
+    } else {
+      video.pause();
+    }
   }
 
   function rewind() {
@@ -241,11 +300,11 @@ export default function VideoPlayer({
     durationSeconds > 0 ? Math.min(100, (seekMax / durationSeconds) * 100) : 0;
 
   return (
-    <div className="tracked-video">
+    <div className="tracked-video cinematic-video-wrapper">
       <div
         ref={frame}
         className={
-          "video-frame" +
+          "video-frame cinematic-video-frame rounded-2xl overflow-hidden shadow-xl bg-black relative" +
           (controlsVisible ? " controls-visible" : " controls-hidden") +
           (fullscreen ? " is-fullscreen" : "")
         }
@@ -256,6 +315,37 @@ export default function VideoPlayer({
           if (playing) armHideTimer();
         }}
       >
+        {/* Auto-pause notice toast banner on visibility change */}
+        {visibilityNotice && (
+          <div
+            className="auto-pause-toast absolute top-4 left-4 right-4 sm:left-1/2 sm:-translate-x-1/2 sm:w-auto sm:max-w-md z-30 bg-slate-900/95 text-white backdrop-blur-md px-4 py-3 rounded-xl border border-amber-500/50 shadow-2xl flex items-center gap-3 animate-fade-in"
+            role="alert"
+          >
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center flex-shrink-0">
+              <EyeOff size={18} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs sm:text-sm font-semibold text-amber-300">
+                ระบบหยุดวิดีโอชั่วคราว
+              </p>
+              <p className="text-[11px] sm:text-xs text-slate-200 mt-0.5 leading-snug">
+                ระบบหยุดวิดีโอชั่วคราว เนื่องจากคุณสลับหน้าต่างหรือเปลี่ยนแท็บ
+              </p>
+            </div>
+            <button
+              type="button"
+              className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition flex-shrink-0"
+              aria-label="ปิดการแจ้งเตือน"
+              onClick={(e) => {
+                e.stopPropagation();
+                setVisibilityNotice(false);
+              }}
+            >
+              <X size={15} />
+            </button>
+          </div>
+        )}
+
         <video
           ref={player}
           aria-label="วิดีโอบทเรียน"
@@ -267,12 +357,14 @@ export default function VideoPlayer({
           }
           src={src}
           preload="metadata"
+          className="w-full aspect-video block bg-black object-contain"
           onClick={() => {
             togglePlay();
             revealControls(true);
           }}
           onPlay={() => {
             setPlaying(true);
+            setVisibilityNotice(false);
             revealControls(true);
           }}
           onPause={() => {
@@ -306,6 +398,20 @@ export default function VideoPlayer({
           }}
           onTimeUpdate={onTimeUpdate}
         />
+        {!playing && !mediaError && !visibilityNotice && (
+          <button
+            type="button"
+            className="video-center-play"
+            aria-label="เล่นวิดีโอ"
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePlay();
+              revealControls(true);
+            }}
+          >
+            <Play size={28} className="ml-1" fill="currentColor" />
+          </button>
+        )}
         <div
           className="video-overlay"
           aria-hidden={controlsVisible ? "false" : "true"}
@@ -359,6 +465,23 @@ export default function VideoPlayer({
                 style={{ width: currentPercent + "%" }}
               />
             </div>
+            <span
+              className="video-save-pill"
+              role="status"
+              title={
+                completed
+                  ? "เรียนสำเร็จ"
+                  : `รับชมแล้ว ${watchedPercent}% (ไม่สามารถกรอข้ามไปข้างหน้าได้)`
+              }
+            >
+              {saveState === "saving"
+                ? "กำลังบันทึก…"
+                : saveState === "error"
+                  ? "บันทึกไม่สำเร็จ"
+                  : completed
+                    ? "ดูจบแล้ว 100%"
+                    : `รับชม ${watchedPercent}%`}
+            </span>
             <button
               type="button"
               className="video-control-btn"
@@ -376,64 +499,10 @@ export default function VideoPlayer({
         </div>
       </div>
       {mediaError && (
-        <p role="alert" className="error">
+        <p role="alert" className="error mt-3">
           โหลดวิดีโอไม่สำเร็จ กรุณาตรวจสอบลิงก์ไฟล์วิดีโอของบทเรียน
         </p>
       )}
-      <p className="muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
-        ย้อนกลับ/กรอถอยหลังได้ · ไม่สามารถกรอข้ามไปข้างหน้าได้ ·
-        ไม่แตะจอ 5 วินาทีขณะเล่นจะซ่อนปุ่มอัตโนมัติ
-      </p>
-      <div className="video-progress">
-        <div className="video-stats">
-          <div>
-            <span>เวลาที่รับชมแล้ว</span>
-            <strong>
-              {Math.floor(maxWatchedTime / 60)} นาที{" "}
-              {Math.floor(maxWatchedTime % 60)} วินาที
-            </strong>
-            <small>
-              จาก {Math.floor(durationSeconds / 60)} นาที{" "}
-              {Math.floor(durationSeconds % 60)} วินาที
-            </small>
-          </div>
-          <div>
-            <span>ความคืบหน้าบทเรียน</span>
-            <strong>{watchedPercent}%</strong>
-            <small>บันทึกแยกตามบัญชีผู้เรียน</small>
-          </div>
-          <div>
-            <span>สถานะบทเรียน</span>
-            <strong className={completed ? "video-completed" : ""}>
-              {completed
-                ? "เรียนสำเร็จ"
-                : maxWatchedTime > 0
-                  ? "กำลังเรียน"
-                  : "ยังไม่เริ่มเรียน"}
-            </strong>
-            <small role="status">
-              {saveState === "saving"
-                ? "กำลังบันทึก…"
-                : saveState === "error"
-                  ? "บันทึกไม่สำเร็จ กรุณาลองอีกครั้ง"
-                  : "บันทึกความคืบหน้าแล้ว"}
-            </small>
-          </div>
-        </div>
-        <div
-          className="progress"
-          role="meter"
-          aria-label="ความคืบหน้าการรับชมวิดีโอ"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={watchedPercent}
-        >
-          <i style={{ width: watchedPercent + "%" }} />
-        </div>
-        <small>
-          ดูครบคลิปเพื่อเรียนสำเร็จ · ระบบบันทึกความคืบหน้าอัตโนมัติ
-        </small>
-      </div>
     </div>
   );
 }

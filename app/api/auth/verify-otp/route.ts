@@ -54,6 +54,8 @@ export async function POST(req: NextRequest) {
       name: account.name,
       email: account.email,
       role: normalizedRole,
+      company: account.company,
+      allowedCompanies: account.allowedCompanies,
       assignedCourses: account.assignedCourses,
     };
 

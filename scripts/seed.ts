@@ -26,22 +26,59 @@ try {
     .updateOne(
       { email: process.env.ADMIN_EMAIL.toLowerCase() },
       {
+        $set: {
+          password: hashPassword(process.env.ADMIN_PASSWORD),
+          role: "admin",
+        },
         $setOnInsert: {
           id: randomUUID(),
           email: process.env.ADMIN_EMAIL.toLowerCase(),
           name: "ผู้ดูแล AAG+",
-          password: hashPassword(process.env.ADMIN_PASSWORD),
-          role: "admin",
         },
       },
       { upsert: true },
     );
-  for (const c of courses)
+  await db.collection("users").updateOne(
+    { email: "learner@aag.demo" },
+    {
+      $set: {
+        password: hashPassword("Learn@12345"),
+        role: "learner",
+        company: "AAG+",
+        allowedCompanies: ["AAG+", "ABM", "AGE"],
+      },
+      $setOnInsert: {
+        id: "demo-learner",
+        email: "learner@aag.demo",
+        name: "ผู้เรียน AAG+",
+      },
+    },
+    { upsert: true },
+  );
+  await db.collection("users").updateOne(
+    { email: "admin@aag.demo" },
+    {
+      $set: {
+        password: hashPassword("Admin@12345"),
+        role: "admin",
+        company: "AAG+",
+        allowedCompanies: ["AAG+", "ABM", "AGE"],
+      },
+      $setOnInsert: {
+        id: "demo-admin",
+        email: "admin@aag.demo",
+        name: "ผู้ดูแล AAG+",
+      },
+    },
+    { upsert: true },
+  );
+  for (const c of courses) {
     await db
       .collection("courses")
-      .updateOne({ id: c.id }, { $setOnInsert: c }, { upsert: true });
+      .updateOne({ id: c.id }, { $set: c }, { upsert: true });
+  }
   console.log(
-    "Created indexes, sample courses and initial administrator. Existing records unchanged.",
+    `✅ Seeded ${courses.length} courses with official business thumbnails (AGE, ABM, AAG+) and administrator successfully.`,
   );
 } finally {
   await client.close();

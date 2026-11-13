@@ -11,13 +11,21 @@ import {
   type OtpRecord,
   type VideoProgress,
   type Role,
+  type Company,
   normalizeRole,
+  resolveCourseCompany,
+  DEFAULT_BUILTIN_COURSE_IDS,
+  getCourseSortTime,
+  sortCoursesLatestFirst,
 } from "./types.ts";
-import { MongoClient, type UpdateFilter } from "mongodb";
+export { DEFAULT_BUILTIN_COURSE_IDS, getCourseSortTime, sortCoursesLatestFirst };
+import { MongoClient, type UpdateFilter, type Filter } from "mongodb";
 import { courses } from "./data.ts";
-import { hashPassword } from "./security.ts";
+import { hashPassword, verifyPassword } from "./security.ts";
 import { updateVideoProgress } from "./video-progress.ts";
 import { normalizeProgress } from "./course-progress.ts";
+import { connectToDatabase, dbLastError } from "./mongodb.ts";
+export { dbLastError };
 export let demo =
   process.env.DEMO_MODE === "true" ||
   (!process.env.MONGODB_URI && process.env.NODE_ENV !== "production");
@@ -47,23 +55,18 @@ export function activateDemoFallback(error: unknown): boolean {
   return true;
 }
 export async function database() {
-  if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI is required");
-  if (!globals.aagMongo)
-    globals.aagMongo = new MongoClient(process.env.MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000,
-    })
-      .connect()
-      .catch((e) => {
-        globals.aagMongo = null;
-        activateDemoFallback(e);
-        throw e;
-      });
-  return (await globals.aagMongo).db(process.env.MONGODB_DB || "aag_learning");
+  try {
+    return await connectToDatabase();
+  } catch (e) {
+    activateDemoFallback(e);
+    throw e;
+  }
 }
 function memory(): DemoStore {
-  return (globals.aagDemo ??= {
-    courses: structuredClone(courses),
-    users: [
+  if (!globals.aagDemo) {
+    const envAdminEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+    const envAdminPass = process.env.ADMIN_PASSWORD || "admin123456";
+    const initialUsers: User[] = [
       {
         id: "demo-learner",
         name: "ผู้เรียน AAG+",
@@ -78,15 +81,43 @@ function memory(): DemoStore {
         password: hashPassword("Admin@12345"),
         role: "admin",
       },
-    ],
-    progress: [],
-    videoProgress: [],
-    attempts: [],
-    otps: [],
-  });
+    ];
+
+    if (envAdminEmail && envAdminEmail !== "admin@aag.demo") {
+      initialUsers.push({
+        id: "admin-initial",
+        name: "ผู้ดูแลระบบ AAG+",
+        email: envAdminEmail,
+        password: hashPassword(envAdminPass),
+        role: "admin",
+      });
+    }
+
+    globals.aagDemo = {
+      courses: structuredClone(courses),
+      users: initialUsers,
+      progress: [],
+      videoProgress: [],
+      attempts: [],
+      otps: [],
+    };
+  }
+  return globals.aagDemo;
 }
-export async function allCourses(): Promise<Course[]> {
-  if (demo) return memory().courses;
+
+export async function allCourses(filter?: { company?: string }): Promise<Course[]> {
+  const mapAndFilter = (list: Course[]) => {
+    const resolved = list.map((c) => ({
+      ...c,
+      company: resolveCourseCompany(c),
+    }));
+    const filtered = filter?.company
+      ? resolved.filter((c) => c.company === filter.company)
+      : resolved;
+    return sortCoursesLatestFirst(filtered);
+  };
+
+  if (demo) return mapAndFilter(memory().courses);
 
   try {
     const collection = (await database()).collection<Course>("courses");
@@ -97,7 +128,7 @@ export async function allCourses(): Promise<Course[]> {
           try {
             await collection.updateOne(
               { id: course.id },
-              { $setOnInsert: course },
+              { $set: { ...course, company: resolveCourseCompany(course) } },
               { upsert: true },
             );
           } catch (error) {
@@ -115,9 +146,27 @@ export async function allCourses(): Promise<Course[]> {
       throw error;
     });
     await courseInitialization;
-    return await collection.find({}, { projection: { _id: 0 } }).toArray();
+
+    const targetComp = filter?.company as Company | undefined;
+    const mongoQuery: Filter<Course> = targetComp
+      ? targetComp === "AGE"
+        ? {
+          $or: [
+            { company: "AGE" },
+            { company: { $exists: false } },
+          ],
+        }
+        : { company: targetComp }
+      : {};
+
+    const docs = await collection.find(mongoQuery, { projection: { _id: 0 } }).toArray();
+    const resolved = docs.map((c) => ({
+      ...c,
+      company: resolveCourseCompany(c),
+    }));
+    return sortCoursesLatestFirst(resolved);
   } catch (error) {
-    if (activateDemoFallback(error)) return memory().courses;
+    if (activateDemoFallback(error)) return mapAndFilter(memory().courses);
     throw error;
   }
 }
@@ -148,7 +197,7 @@ export async function userBy(
         field === "id"
           ? u.id === value || u.azureId === value
           : u.email.toLowerCase() === normalized ||
-            (u.userPrincipalName || "").toLowerCase() === normalized,
+          (u.userPrincipalName || "").toLowerCase() === normalized,
       ),
     );
   }
@@ -158,34 +207,75 @@ export async function userBy(
       field === "id"
         ? { $or: [{ id: value }, { azureId: value }] }
         : {
-            $or: [
-              { email: normalized },
-              { email: emailRegex },
-              { userPrincipalName: emailRegex },
-            ],
-          };
+          $or: [
+            { email: normalized },
+            { email: emailRegex },
+            { userPrincipalName: emailRegex },
+          ],
+        };
     const col = (await database()).collection<User>("users");
     let doc = await col.findOne(query, { projection: { _id: 0 } });
+    const envAdminEmail = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+    const envAdminPass = process.env.ADMIN_PASSWORD;
+
     if (
-      !doc &&
       field === "email" &&
-      process.env.ADMIN_EMAIL &&
-      process.env.ADMIN_PASSWORD &&
-      normalized === process.env.ADMIN_EMAIL.trim().toLowerCase()
+      (normalized === "learner@aag.demo" || normalized === "admin@aag.demo")
     ) {
-      const adminUser: User = {
-        id: "admin-initial",
-        name: "ผู้ดูแลระบบ AAG+",
-        email: normalized,
-        password: hashPassword(process.env.ADMIN_PASSWORD),
-        role: "admin",
-      };
-      await col.updateOne(
-        { email: normalized },
-        { $setOnInsert: adminUser },
-        { upsert: true },
-      );
-      doc = await col.findOne({ email: normalized }, { projection: { _id: 0 } });
+      if (!doc) {
+        const isLearner = normalized === "learner@aag.demo";
+        const demoUser: User = {
+          id: isLearner ? "demo-learner" : "demo-admin",
+          name: isLearner ? "ผู้เรียน AAG+" : "ผู้ดูแล AAG+",
+          email: normalized,
+          password: hashPassword(isLearner ? "Learn@12345" : "Admin@12345"),
+          role: isLearner ? "learner" : "admin",
+          company: "AAG+",
+          allowedCompanies: ["AAG+", "ABM", "AGE"],
+        };
+        await col.updateOne(
+          { email: normalized },
+          { $setOnInsert: demoUser },
+          { upsert: true },
+        );
+        doc = await col.findOne({ email: normalized }, { projection: { _id: 0 } });
+      }
+    }
+
+    if (
+      field === "email" &&
+      envAdminEmail &&
+      normalized === envAdminEmail &&
+      envAdminPass
+    ) {
+      if (!doc) {
+        const adminUser: User = {
+          id: "admin-initial",
+          name: "ผู้ดูแลระบบ AAG+",
+          email: normalized,
+          password: hashPassword(envAdminPass),
+          role: "admin",
+        };
+        await col.updateOne(
+          { email: normalized },
+          { $setOnInsert: adminUser },
+          { upsert: true },
+        );
+        doc = await col.findOne({ email: normalized }, { projection: { _id: 0 } });
+      } else if (!doc.password || doc.role !== "admin" || !verifyPassword(envAdminPass, doc.password)) {
+        const updatedPass = hashPassword(envAdminPass);
+        await col.updateOne(
+          { email: normalized },
+          {
+            $set: {
+              password: updatedPass,
+              role: "admin",
+            },
+          },
+        );
+        doc.password = updatedPass;
+        doc.role = "admin";
+      }
     }
     return normalizeUserDoc(doc);
   } catch (error) {
@@ -195,7 +285,7 @@ export async function userBy(
           field === "id"
             ? u.id === value || u.azureId === value
             : u.email.toLowerCase() === normalized ||
-              (u.userPrincipalName || "").toLowerCase() === normalized,
+            (u.userPrincipalName || "").toLowerCase() === normalized,
         ),
       );
     throw error;
@@ -687,12 +777,18 @@ export async function mutateCourse(
     return;
   }
   if (!data) throw new Error("Course data required");
-  const course: Course = { ...data, id };
+  const now = new Date().toISOString();
+  const course: Course = {
+    ...data,
+    id,
+    createdAt: data.createdAt || now,
+    updatedAt: now,
+  };
   if (demo) {
     const list = memory().courses;
     const index = list.findIndex((item) => item.id === id);
     if (index >= 0) list[index] = course;
-    else list.push(course);
+    else list.unshift(course);
   } else
     await (
       await database()
